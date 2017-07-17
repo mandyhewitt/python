@@ -529,7 +529,7 @@ one_fb (one, f1, f2)
      double f1, f2;             /* freqmin and freqmax */
 {
   double freq, tt, delta;
-  int n,nn,nnn, npoints;
+  int n,nn,nnn;
   double fthresh, dfreq;
   int nplasma;
   PlasmaPtr xplasma;
@@ -639,39 +639,24 @@ use that instead if possible --  57h */
   				}
   	  		else //We dont need to make a new point, the upper frequency pair of the last jump did the trick
   		  		{
-	  			n=n+1;  //We only need to increment our regualr grid counter
+	  			n=n+1;  //We only need to increment our regular grid counter
   		  		}
  	 	}
     }
 	
+
+	
+	
 	
 	/* At this point, the variable nnn stores the number of points */
 	
-	fb_njumps=0;
 	
 	/* Check to see if the new number of points will exceed the number of points allocated in the cdf - if so, extend */
 	
-	if (nnn > cdf_fb.ncdf)
-	{
-		free(cdf_fb.x);
-		free(cdf_fb.y);
-		free(cdf_fb.d);
 
 
-		if ((cdf_fb.x = calloc (sizeof (double), nnn+1)) == NULL)
-			Error("one_fb - error extending fb array\n");
-		if ((cdf_fb.y = calloc (sizeof (double), nnn+1)) == NULL)
-			Error("one_fb - error extending fb array\n");
-		if ((cdf_fb.d = calloc (sizeof (double), nnn+1)) == NULL)
-			Error("one_fb - error extending fb array\n");
-		
-		cdf_fb.ncdf=nnn;
-	}
-	
 
-	
-
-    if (cdf_gen_from_array (&cdf_fb, fb_x, fb_y, nnn, f1, f2, fb_njumps, fb_jumps) != 0)
+    if (cdf_gen_from_array (&cdf_fb, fb_x, fb_y, nnn, f1, f2) != 0)
     {
       Error ("one_fb after error: f1 %g f2 %g te %g ne %g nh %g vol %g\n",
              f1, f2, xplasma->t_e, xplasma->ne, xplasma->density[1], one->vol);
@@ -1657,16 +1642,18 @@ sort_and_compress (array_in, array_out, npts)
 }
 
 /* This routine just compares two double precision numbers and
- * returns 1 if a is greate than b, and 0 otherwise.  It is
+ * returns 1 if a is greater than b, and 0 otherwise.  It is
  * used by qsort
  */
 
+
+
 int
-compare_doubles (const double *a, const double *b)
+compare_doubles (const void *a, const void *b)
 {
-  if (*a > *b)
+  if (*(double*)a > *(double*)b)
     return 1;
-  else if (*a < *b)
+  else if (*(double*)a < *(double*)b)
     return -1;
   else
     return 0;
