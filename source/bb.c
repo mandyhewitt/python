@@ -619,16 +619,21 @@ emittance_bb (freqmin, freqmax, t)
      double freqmin, freqmax, t;
 {
   double alphamin, alphamax, q1;
-  double integ_planck_d ();
-  double emittance;
   q1 = 2. * PI * (BOLTZMANN * BOLTZMANN * BOLTZMANN * BOLTZMANN) / (H * H * H * C * C);
 
-  emittance=0.0;
   alphamin = H * freqmin / (BOLTZMANN * t);
   alphamax = H * freqmax / (BOLTZMANN * t);
   
   
   //NSH - I think this is called so infrequently, we may as well just use qromb, and get the right answer!
+  
+  if (alphamax > ALPHABIG) //The BB function is nigligible above ALPHABIG
+	  alphamax=ALPHABIG;
+  
+  if (alphamin > ALPHABIG) //There is no point in integrating here - the reusult will be tiny!
+	  return(0.0);
+  
+  
   
   return (q1 * t * t * t * t * qromb (planck_d, alphamin, alphamax, 1e-7));
   
