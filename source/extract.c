@@ -250,6 +250,12 @@ one is odd. We do frequency here but weighting is carried out in  extract */
 
       extract_one (w, &pp, itype, n);
 
+      /* Now collect polarization information for disk wind photons only */
+
+      if (itype == PTYPE_WIND) {
+        poltest(p, &pp);
+      }
+
       /* Make sure phot_hist is on, for just one extraction */
 
       phot_hist_on = 0;
@@ -511,3 +517,9 @@ the same resonance again */
 
   return (istat);
 }
+
+
+
+
+
+
