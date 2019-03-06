@@ -52,10 +52,12 @@ docs/doxygen/html/
 docs/doxygen/latex/
 
 
+
 # python and system files
 *.pyc
 *~
 *.DS_Store
+*.xml
 
 # some gsl files
 *.Plo

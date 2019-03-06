@@ -1066,6 +1066,7 @@ typedef struct photon
   double x[3];                  /* Vector containing position of packet */
   double lmn[3];                /*direction cosines of this packet */
   double freq, freq_orig;       /* current and original frequency of this packet */
+    double q,u;                 /* polarization stokes parameters q and u */
   double w, w_orig;             /* current and original weight of this packet */
   double tau;
   enum istat_enum
@@ -1201,8 +1202,12 @@ typedef struct spectrum
                                    x is taken to be the center of the region and r is taken to be the radius of
                                    the region.   */
   double f[NWAVE];              /* The spectrum in linear (wavelength or frequency) units */
-  double lf[NWAVE];             /* The specturm in log (wavelength or frequency)  units  */
-  double lfreq[NWAVE];          /* We need to hold what freqeuncy intervals our logarithmic spectrum has been taken over */
+  double lf[NWAVE];             /* The spectrum in log (wavelength or frequency) units  */
+  double Q[NWAVE];              /* The linear polarized spectrum from Stokes parameter Q  */
+  double lQ[NWAVE];             /* The log polarized spectrum from Stokes parameter Q */
+        double U[NWAVE];        /* The linear polarized spectrum from Stokes parameter U  */
+        double lU[NWAVE];       /* The log polarized spectrum from Stokes parameter U */
+  double lfreq[NWAVE];          /* We need to hold what frequency intervals our logarithmic spectrum has been taken over */
 
   double f_wind[NWAVE];         /* The spectrum of photons created in the wind or scattered in the wind. Created for 
                                    reflection studies but possible useful for other reasons as well. */
@@ -1428,6 +1433,10 @@ struct filenames
   char tprofile[LINELENGTH];    // non standard tprofile fname
   char phot[LINELENGTH];        // photfile e.g. python.phot
   char windrad[LINELENGTH];     // wind rad file
+  char Q_polarize[LINELENGTH];  // .polarization file (extracted polarized spectra on a linear scale)
+  char lQ_polarize[LINELENGTH]; // .polarization file (extracted polarized spectra on a log scale)
+  char U_polarize[LINELENGTH];
+  char lU_polarize[LINELENGTH];
 }
 files;
 
