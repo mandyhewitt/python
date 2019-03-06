@@ -10,9 +10,9 @@
  *
  * The two main routines are emittance_bb or planck.  The rest of the routines
  * are helper routines that should not normally be called directly.
- *g
+ *
  * The first call to either of these routines (surely emittance_bb) results in a call to integ_planck_d,
- * which in turn calls integ_planck_init.  This initiacd softlization routine in turn populates the
+ * which in turn calls integ_planck_init.  This initialization routine in turn populates the
  * array integ_planck , which contains the integral of the bb function in an array.
  * bb_emittance continues to access the array integ_plank through integ_planck_d every
  * future time is is called.
