@@ -1,4 +1,3 @@
-#define VERSION  "82g"
-#define CHOICE 1 // Compress plasma as much as possible
-#define GIT_COMMIT_HASH "db701c5704d5a1c6ca665f33f7d79ac580ac36b1"
-#define GIT_DIFF_STATUS 3 
+#define VERSION  "83"
+#define GIT_COMMIT_HASH "b949429962945e3470ff1b07c13b10b4fa80384a"
+#define GIT_DIFF_STATUS 0 
