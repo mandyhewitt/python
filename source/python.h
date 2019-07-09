@@ -95,7 +95,7 @@ int NPHOT_MAX;                  /* The maximum number of photon bundles created 
 int NPHOT;                      /* The number of photon bundles created, defined in setup.c */
 int CURRENT_PHOT;               /* A diagnostic so that one can always determine what the current photon number being run is */
 
-#define NWAVE  			  10000 //Increasing from 4000 to 10000 (SS June 04)
+#define NWAVE  			  1000 //Increasing from 4000 to 10000 (SS June 04) and decrease to 1000 (MH Jun 19)
 #define MAXSCAT 			500
 
 /* Define the structures */
@@ -1065,6 +1065,7 @@ typedef struct photon
 {
   double x[3];                  /* Vector containing position of packet */
   double lmn[3];                /*direction cosines of this packet */
+    double orig[3];             /* original photon lmn pre scattering */
   double freq, freq_orig;       /* current and original frequency of this packet */
     double q,u;                 /* polarization stokes parameters q and u */
   double w, w_orig;             /* current and original weight of this packet */
