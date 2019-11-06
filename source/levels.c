@@ -1,61 +1,50 @@
 
-/**************************************************************************
-                    Space Telescope Science Institute
+/***********************************************************/
+/** @file  levels.c
+ * @author ksl
+ * @date   January, 2018
+ *
+ * @brief  This file contains a routine to calculate level populations
+ * in ions for LTE and related assumptions.
+ *
+ ***********************************************************/
 
-
-  Synopsis:
-	levels (xplasma, mode) calculates the fractional occupation numbers of
-	the various levels of atomic configurations as designated in
-	the atomic data files
-
-  Description:
-
-	mode	0	LTE with t_r
-		1	LTE with t_e
-		2	Non-LTE (reduced by weighted BB)
-
-  Arguments:
-
-  Returns:
-
-  Notes:
-
-	0808 - ksl - levels populates the levden array in the Plasma pointer.  It
-		is called from ion_abundances in python, and is called directly
-		from my diagnostic routine balance.  It's closely related to
-		another but separate routine which calculates the partition
-		functions, callled partition
-
-  History:
-	01sep23	ksl	Began work
-	01oct10	ksl	Modified so modes matched python ionization modes
-			more exactly.
-	01dec03	ksl	Modified to simplify so modes match those of
-			nebular concentrations
-	01dec12	ksl	Modified to react to changes which split "nlte"
-			and "lte" levels.  Levels is explicitly for so-
-			called "nlte" levels, which are tracked in the
-			Wind structure
-	04Apr   SS      If statement added to avoid this routine changing
-                        macro atom level populations.
-        04May   SS      The if statment added above is modified for the case
-                        of all "simple" ions.
-	06may	ksl	57+ -- Modified to make use of plasma structue
-	080810	ksl	62 - Fixed problem with how the levden array was
-			indexed.  The problem was that the index into the
-			levden array is not the same as the index into
-			the so called nlte configurations.
-			Also made the actual use of variables
-			like nion,n,m resemble that in partitions so the
-			routine was easier to compae
-
- ************************************************************************/
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
 #include "atomic.h"
 #include "python.h"
+
+
+/**********************************************************/
+/** 
+ * @brief      Calculates the fractional occupation numbers of
+ * 	the various  of atomic configurations assuming LTE or various
+ * 	alternatives to LTE
+ *
+ * @param [in] PlasmaPtr  xplasma   A single element of the Plasma structure
+ * @param [in] int  mode  An integer which determines the way in which the partition funciton will be calculated 
+ * @return     Always returns 0
+ *
+ * @details
+ * 	The possibilites are:
+ *
+ * * NEBULARMODE_TR 0        LTE using t_r
+ * * NEBULARMODE_TE 1        LTE using t_e
+ * * NEBULARMODE_ML93 2      ML93 using a nebular approximation correction to LTE
+ * * NEBULARMODE_NLTE_SIM 3  // Non_LTE with SS modification (Probably could be removed)
+ * * NEBULARMODE_LTE_GROUND 4        // A test mode which forces all levels to the GS (Probably could be removed)
+ *
+ * levels populates the levden array in the Plasma pointer.  It
+ * is called from the routine partition
+ *
+ * ### Notes ###
+ *
+ * @bug  Some rethinking of the whole level density approach needs to be done.  It's not
+ * clear how these functions are being used and what difference if any that they make.  
+ *
+ **********************************************************/
 
 int
 levels (xplasma, mode)
@@ -70,6 +59,7 @@ levels (xplasma, mode)
   double kt;
   double z;
 
+  t = weight = 0.0;
   if (mode == NEBULARMODE_TR)   // LTE with t_r
   {
     t = xplasma->t_r;
@@ -100,7 +90,7 @@ levels (xplasma, mode)
   else
   {
     Error ("levels: Could not calculate levels for mode %d\n", mode);
-    exit (0);
+    Exit (0);
   }
 
   /* Next calculation should be almost identical to that contained in

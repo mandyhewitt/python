@@ -1,107 +1,110 @@
 
+/***********************************************************/
+/** @file  gridwind.c
+ * @author ksl,sss,jm
+ * @date   April, 2018
+ *
+ * @brief  This file contains routines for allocating space for most
+ * of the structures needed by Python.  These include 
+ * Wind and Plasma structures, and if using macro atoms, the
+ * various structures rwquired for this.  The file also contains
+ * a routine that maps grid cells in the wind to those in the 
+ * Plasma structure, and vice versa.
+ *
+ *
+ * The hierachy of stuctures that describe a model in Python 
+ * are domains (which describe a region of the wind), wmain 
+ * which contains basic information about the cells in each domain,
+ * and plasmamain which contains more detailed information about
+ * cells which are actually in the wind.  
+ *
+ * The cells in wmain are created on a simple grid, often
+ * a cylindrical region, but no all of this region may be
+ * in the wind, as the case in a binconical flow.  To save
+ * memory, one usually only creates elements of plasmamain
+ * that correspond to wind cells that are actually in the 
+ * wind.
+ *
+ * The Plasma structure includes space for storing all of
+ * the information needed to calculate ionization and equilibrium 
+ * in the two-level approximation.  However, additional structures
+ * are required when operating in macro atom mode.  Routines
+ * for allocating the structures associated with macroatoms
+ * are also included here.
+ *
+ * Note that a coniderable effort has been made to minimize the
+ * total size of the various structures, and so PlasmaMain 
+ * contains a number of variables that are actually pointers to
+ * other structures that are allocated dynamically depeding on
+ * the atomic data.  This is also true in the case of the main
+ * macro atom structure MacroMain.  
+ *
+ * Note that some structures are allocated in other portions of the
+ * code, e.g get_atomic_data, but all of the structures that 
+ * are needed to set up the wind are here. 
+ *
+ ***********************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
 #include "atomic.h"
-
 #include "python.h"
 
-/***********************************************************
-                                       Space Telescope Science Institute
 
- Synopsis:
-	This file contains routines for handling the interaction
-	between the GridPtr and WindPtr array
-
- Arguments:
-
-	
- Returns:
-
-Description:
-
-Notes:
-
-
-History:
-	1112	ksl	Began to make changes so that one could 
-			read a new wind file from within one 
-			of the python routines
-
-**************************************************************/
-
-
-
-/***********************************************************
-                                       Space Telescope Science Institute
-
- Synopsis: create_maps (ichoice)
-
- Arguments:
-     int ichoice	!0 (or true) then the size of the plasma structure is
-			just given by the cells with non-zero volume
-			0 (or false) then the size of the palma structure
-			is the same as the wind structue
-
-	
- Returns:
-
-Description:
-
-Notes:
-
-
-History:
-	06may	ksl	Created as part of the attempt to reduce the
-			overall size of the structures
-
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief      Create a map between wind and plasma cells
+ *
+ * @return     Always returns 0
+ *
+ * @details
+ * The routine fills variables, nplasma in wmain, and nwind in plasmamain
+ * that map elements of wmain to those in plasmamain anc vice versus
+ *
+ *
+ * ### Notes ###
+ * Normally, there are fewer plasma elements than wind elements, since
+ * plasma elements are created only for those wind elements which have 
+ * finite volume in the wind.  For each domain, a coordinate grid is
+ * created that covers a region of space, e.g a portion of a cylindrical
+ * grid.  However some cells in this region are empty or matter, e.g
+ * in a bi-conical flow.  
+ * 
+ * wmain and plasmamain will already have been allocated memory by
+ * the time this routine is called.
+ *
+ *
+ *
+ **********************************************************/
 
 int
-create_maps (ichoice)
-     int ichoice;
+create_maps ()
 {
   int i, j;
   j = 0;
-  if (ichoice)
+
+  /*The normal situation where there are fewer wind elements than plasma elements  */
+  for (i = 0; i < NDIM2; i++)
   {
-    //map to reduce space
-    for (i = 0; i < NDIM2; i++)
+    wmain[i].nwind = i;
+    if (wmain[i].vol > 0)
     {
-      wmain[i].nwind = i;
-      if (wmain[i].vol > 0)
-      {
-        wmain[i].nplasma = j;
-        plasmamain[j].nplasma = j;
-        plasmamain[j].nwind = i;
-        j++;
-      }
-      else
-      {
-        wmain[i].nplasma = NPLASMA;
-      }
+      wmain[i].nplasma = j;
+      plasmamain[j].nplasma = j;
+      plasmamain[j].nwind = i;
+      j++;
     }
-    if (j != NPLASMA)
+    else
     {
-      Error ("create_maps: Problems with matching cells -- Expected %d Got %d\n", NPLASMA, j);
-      exit (0);
+      wmain[i].nplasma = NPLASMA;
     }
   }
-  else
-    //one plama cell for each wind cell
+  if (j != NPLASMA)
   {
-    for (i = 0; i < NDIM2; i++)
-    {
-      wmain[i].nwind = i;
-      wmain[i].nplasma = i;
-      plasmamain[i].nplasma = i;
-      plasmamain[i].nwind = i;
-
-    }
-
+    Error ("create_maps: Problems with matching cells -- Expected %d Got %d\n", NPLASMA, j);
+    Exit (0);
   }
 
   plasmamain[NPLASMA].nplasma = NPLASMA;
@@ -111,28 +114,24 @@ create_maps (ichoice)
 
 
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
- Synopsis: calloc_wind (nelem)
-
- Arguments:
-
-	
- Returns:
-
- Description:
-
- Notes:
 
 
- History:
-	06may	ksl	57a -- Coded
-	11dec	ksl	71 - Modified so that the memory would be
-			reallocated if necessary
-
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief      Allocate space for the wind domain
+ *
+ * @param [in] nelem   The number of elements in the wind domain to allocate
+ * @return     Returns 0 unless there is insufficient space, in which
+ * case the routine will call the program to exits
+ *
+ * @details
+ *
+ * ### Notes ###
+ * The wind is conisists of grids of cells that paper the active region
+ * of the calculation.  Each domain has a number of these grid cells.
+ * nelem is the total number of such cells.
+ *
+ **********************************************************/
 
 int
 calloc_wind (nelem)
@@ -149,7 +148,7 @@ calloc_wind (nelem)
   if (wmain == NULL)
   {
     Error ("There is a problem in allocating memory for the wind structure\n");
-    exit (0);
+    Exit (0);
   }
   else
   {
@@ -163,30 +162,33 @@ calloc_wind (nelem)
 
 
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
- Synopsis: calloc_plasma (nelem)
-
- Arguments:
-
-	
- Returns:
-
-Description:
-
-Notes:
-
-	This only allocates elements.  It does not populate them
-	with any information.
 
 
-History:
-11dec	ksl	71 - Modified so that the memory would be
-		reallocated if necessary
 
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief      Allocate memory for plasmamain, which contains temperature, densities, etc.
+ * for cells which are in the wind
+ *
+ * @param [in, out] int  nelem   The number of elements of plasmamain to allocate
+ * @return     Returns 0, unless the program is unable to allocate the requested memory 
+ * in which case the program exits
+ *
+ * @details
+ *
+ * ### Notes ###
+ *
+ * This only allocates elements.  It does not populate them
+ * with any information.
+ *
+ * The routine also allocates space for storing photons associated with
+ * each plasma cell.  This is used for creating wind photons in a cell
+ * in cases where one wants to created multiple photons of a certain 
+ * type, and generating the cdf for this is time consuming, but generating
+ * photons once you have the cdf is not.  It is currently used for fb processes
+ * only.
+ *
+ **********************************************************/
 
 int
 calloc_plasma (nelem)
@@ -198,7 +200,7 @@ calloc_plasma (nelem)
     free (plasmamain);
   }
 
-  //Allocate one extra element to store data where there is no volume
+  /*Allocate one extra element to store data where there is no volume */
 
   plasmamain = (PlasmaPtr) calloc (sizeof (plasma_dummy), (nelem + 1));
   geo.nplasma = nelem;
@@ -206,7 +208,7 @@ calloc_plasma (nelem)
   if (plasmamain == NULL)
   {
     Error ("There is a problem in allocating memory for the plasma structure\n");
-    exit (0);
+    Exit (0);
   }
   else
   {
@@ -225,7 +227,7 @@ calloc_plasma (nelem)
   if (photstoremain == NULL)
   {
     Error ("There is a problem in allocating memory for the photonstore structure\n");
-    exit (0);
+    Exit (0);
   }
   else
   {
@@ -234,9 +236,53 @@ calloc_plasma (nelem)
        sizeof (photon_store_dummy), (nelem + 1), 1.e-6 * (nelem + 1) * sizeof (photon_store_dummy));
   }
 
+  /* Repeat above for matom storage photon frequencies -- 82h */
+  if (matomphotstoremain != NULL)
+  {
+    free (matomphotstoremain);
+  }
+  matomphotstoremain = (MatomPhotStorePtr) calloc (sizeof (matom_photon_store_dummy), (nelem + 1));
+
+  if (matomphotstoremain == NULL)
+  {
+    Error ("There is a problem in allocating memory for the matomphotonstore structure\n");
+    Exit (0);
+  }
+  else
+  {
+    Log
+      ("Allocated %10d bytes for each of %5d elements of matomphotonstore totaling %10.1f Mb \n",
+       sizeof (matom_photon_store_dummy), (nelem + 1), 1.e-6 * (nelem + 1) * sizeof (matom_photon_store_dummy));
+  }
+
   return (0);
 }
 
+
+
+/**********************************************************/
+/** 
+ * @brief      Check that one is not trying to get information from
+ * the dummy Plasma element that is associated with wind elements that
+ * are not really in the wind
+ *
+ * @param [in] PlasmaPtr  xplasma   A pointer to the plasma element
+ * @param [in] char  message[]   A message which is printed out if 
+ * one has tried to access the dummy Plsma element
+ * @return     0 (False) if one is not in the empty plasma cell, 1 
+ * (True) if you have gooten there.
+ *
+ * @details
+ * Wind cells that have no associated volume are assigned to
+ * the same plasma element.  One should never be asked to 
+ * generate a photon or indeeed have a scattering event in
+ * such wind cells.  This little routine is just a diagnostic
+ * routine that throws an error message if one has gotten
+ * into such a situation.
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 int
 check_plasma (xplasma, message)
@@ -255,101 +301,28 @@ check_plasma (xplasma, message)
 
 
 
-/***********************************************************
-               Space Telescope Science Institute
 
- Synopsis: calloc_macro (nelem)
-
- Arguments:
-
-	
- Returns:
-
-Description:
-
-Notes:
-
-060805 -- ksl -- Begin notes on changing the macro structures
-
-At present, we allocate macromain if there are any macrolevels,
-but the size of macromain is determined by NLEVELS_MACRO and
-NBBJUMPS or NBFJUMPS.  These are not set dynamically, and so
-one should consider how to do this, since for the current values
-these are set to 500 for NLEVELS_MACRO, 20 for NBBJUMPS, and
-NBFJUMPS, which means they are roughly 1000 per level.  The
-first thing to do about this is to reduce them to values that
-are more like those in our datafiles.
-
-If further work is needed there are several possibilties,
-each of which has some disadvantages relative to the current
-appraoch.  The advantage of the current approch is that each
-plasma cell has a separate macro structure element and that
-these are addressed rather logically, e.g
-	macromain[n].jbar[macro_level][nbf]
-It is pretty easy to see what is going on in arrays.  If one
-wants to dynamically allocate say the number of macro_levels,
-then one will create a new structure called for example
-macro2 to contain jbar, jbar_old etc, and then to map to the
-appropriate elements of it  from the macro_array.  There are
-several ways to do this.
-
-One would be to follow the approach used in other portions of
-the atomic structures to add t add the place to start in the
-macro2 structure as an integer.  So for example, if there
-were 35 macrolevels read in, one could simply add a number
-that told one where to start in the macro2 array, much as
-is done in looking for firstion and lastion for an element.
-
-In that case, the addressing would look somelike
-	macro2[macromain[n].start_level]].jbar[nbf]
-
-This is not crazy since we know how many levels have
-been read in, and so the start_levels will increase
-by the number of levels.  An advantage of this approach
-is that you can dump the structues to disk, and read
-them back with another program and eveything will be
-properly indexed.
-
-Another appraoch that would work would be to create
-pointers instead of indexes.  This may be faster. In
-this case the addresing would look something like.
-	macro[n].lev_ptr[nlevel]->jbar[nbf]
-where lev_ptr was defined as *Macro2Ptr within the
-macro structure.
-
-A final approach would be to dynamically resize the
-way the macro array itselve is addressed within each
-routine. This can also be done.  One simply creates a that
-parallels the macro structue within each routine, e.g
-
-struct macro xmacro[][nlevel]
-
-and addrsses things as
-
-        xmacro[n][nlev].jbar[nbf]
-
-This also looks fairly straightforward, in c, and reads pretty
-esaily.
-
-
-At present, I have not done anything about this
-
-End notes on resizing -- 060805
-
-
-
-History:
-	06jun	ksl	Coded
-	0608	ksl	57h -- Recoded to eliminate the creation
-			of the array when there are no macro_atoms.
-			Previously the array had been created but
-			not written out.
-	1112	ksl	71 - Added checks to see if macromain, had
-			been allocated previously and if so to
-			reallocate
-
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief      Allocate memory to store information for macro atoms for
+ * each Plasma element
+ *
+ * @param [in] int  nelem   The number of cells that are actually included
+ * in the wind. 
+ * @return     Always returns 0, unless memory cannot allocate the
+ * requested memory in which case the program exits
+ *
+ * @details
+ * This routine allocates memory for the structure macromain, in the
+ * situation where the program is being run in macro-atom mode.
+ *
+ * ### Notes ###
+ * The size of calloc macro depends on the number cells in the wind,
+ * but many of the elements of macro main are simply stucture pointers
+ * that are allocated by calloc_estimators.
+ * 
+ *
+ **********************************************************/
 
 int
 calloc_macro (nelem)
@@ -372,7 +345,7 @@ calloc_macro (nelem)
   if (macromain == NULL)
   {
     Error ("calloc_macro: There is a problem in allocating memory for the macro structure\n");
-    exit (0);
+    Exit (0);
   }
   else if (nlevels_macro > 0 || geo.nmacro > 0)
   {
@@ -389,24 +362,25 @@ calloc_macro (nelem)
 }
 
 
-/**************************************************************i
-
-This sections seems to have been added by Stuart in the summer of 2009
-but it is not documented.  It was an attempt to reduce the size
-of the windsave file when macro atoms are used.
 
 
-Note that nelem here refers to an element of the macro array, not
-the number of elements
-
-
-1112	ksl	71 - Added code that is intended to allow one to realloate the memory
-		if necessary, but the way this is construced makes it easy to
-		cause errors and it is not obvious how to check this until
-		we put a macro model back in
-130625  JM      Commented out free statements due to PYWIND MALLOC MATOM BUG
- */
-
+/**********************************************************/
+/** 
+ * @brief      Dynamically allocate various arrays in macromain
+ *
+ * @param [in] int  nelem   The number of elements in macromain
+ * @return     Returns 0, unless the desired memory cannot be 
+ * allocated in which the routine exits after an error message
+ *
+ * @details
+ * To minimize the total amount of memory required by Python 
+ * in macromode, allocate memory for various arrays in macromain
+ * which depend upon the number of ions which are treated as
+ * macro atoms
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 int
 calloc_estimators (nelem)
@@ -429,7 +403,7 @@ calloc_estimators (nelem)
 
   for (n = 0; n < nlevels_macro; n++)
   {
-    Log
+    Log_silent
       ("calloc_estimators: level %d has n_bbu_jump %d  n_bbd_jump %d n_bfu_jump %d n_bfd_jump %d\n",
        n, config[n].n_bbu_jump, config[n].n_bbd_jump, config[n].n_bfu_jump, config[n].n_bfd_jump);
     config[n].bbu_indx_first = size_Jbar_est;
@@ -448,176 +422,106 @@ calloc_estimators (nelem)
 
   for (n = 0; n < nelem; n++)
   {
-    /* JM130625: Commented out free statements due to PYWIND MALLOC MATOM BUG
-       if (macromain[n].jbar != NULL)
-       {
-       free (macromain[n].jbar);
-       } */
     if ((macromain[n].jbar = calloc (sizeof (double), size_Jbar_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].jbar_old != NULL)
-       {
-       free (macromain[n].jbar_old);
-       } */
     if ((macromain[n].jbar_old = calloc (sizeof (double), size_Jbar_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].gamma != NULL)
-       {
-       free (macromain[n].gamma);
-       } */
     if ((macromain[n].gamma = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].gamma_old != NULL)
-       {
-       free (macromain[n].gamma_old);
-       } */
     if ((macromain[n].gamma_old = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].gamma_e != NULL)
-       {
-       free (macromain[n].gamma_e);
-       } */
     if ((macromain[n].gamma_e = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].gamma_e_old != NULL)
-       {
-       free (macromain[n].gamma_e_old);
-       } */
     if ((macromain[n].gamma_e_old = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].alpha_st != NULL)
-       {
-       free (macromain[n].alpha_st);
-       } */
     if ((macromain[n].alpha_st = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].alpha_st_old != NULL)
-       {
-       free (macromain[n].alpha_st_old);
-       } */
     if ((macromain[n].alpha_st_old = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].alpha_st_e != NULL)
-       {
-       free (macromain[n].alpha_st_e);
-       } */
     if ((macromain[n].alpha_st_e = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].alpha_st_e_old)
-       {
-       free (macromain[n].alpha_st_e_old);
-       } */
     if ((macromain[n].alpha_st_e_old = calloc (sizeof (double), size_gamma_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].recomb_sp != NULL)
-       {
-       free (macromain[n].recomb_sp);
-       } */
     if ((macromain[n].recomb_sp = calloc (sizeof (double), size_alpha_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].recomb_sp_e != NULL)
-       {
-       free (macromain[n].recomb_sp_e);
-       } */
     if ((macromain[n].recomb_sp_e = calloc (sizeof (double), size_alpha_est)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].matom_emiss != NULL)
-       {
-       free (macromain[n].matom_emiss);
-       } */
     if ((macromain[n].matom_emiss = calloc (sizeof (double), nlevels_macro)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].matom_abs != NULL)
-       {
-       free (macromain[n].matom_abs);
-       } */
     if ((macromain[n].matom_abs = calloc (sizeof (double), nlevels_macro)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /* Added ksl 091103 59e */
-    /*if (macromain[n].cooling_bf != NULL)
-       {
-       free (macromain[n].cooling_bf);
-       } */
     if ((macromain[n].cooling_bf = calloc (sizeof (double), nphot_total)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].cooling_bf_col != NULL)
-       {
-       free (macromain[n].cooling_bf_col);
-       } */
     if ((macromain[n].cooling_bf_col = calloc (sizeof (double), nphot_total)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
 
-    /*if (macromain[n].cooling_bb != NULL)
-       {
-       free (macromain[n].cooling_bb);
-       } */
     if ((macromain[n].cooling_bb = calloc (sizeof (double), nlines)) == NULL)
     {
       Error ("calloc_estimators: Error in allocating memory for MA estimators\n");
-      exit (0);
+      Exit (0);
     }
   }
 
@@ -637,34 +541,28 @@ calloc_estimators (nelem)
   return (0);
 }
 
-/***********************************************************
-                                       West Lulworth
-
- Synopsis:
-	This subroutine allocates space for dynamic arrays in the plasma 
-	structure
-
- Arguments:
-	nelem - the number of plasma cells (actually NPLASMA+1) to allow for empty cell
-
-	
- Returns:
 
 
-Description:
-	This subroutine allocates space for variable length arrays in the plasma structure.
-	This is to save space over the previous versions of python, which allocated arrays
-	based on guesses as to the lengths. 
 
-Notes:
-	Arrays sized to the number of ions are largest,
-	and dominate the size of nplasma, so these were first to be dynamically allocated.
-
-History:
-	1407	nsh	Started out allocating arrays that have length nion
-
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief      This subroutine allocates space for dynamic arrays in the plasma 
+ * 	structure
+ *
+ * @param [in] int  nelem  the number of plasma cells (actually NPLASMA+1) 
+ * to allow for empty cell
+ * @return     Returns 0, unless the memory cannot be allocated in which case
+ * the proram exits
+ *
+ * @details
+ * This subroutine allocates space for variable length arrays in the plasma structure.
+ *
+ * ### Notes ###
+ * Arrays sized to the number of ions are largest,
+ * and dominate the size of nplasma, so these were first to be 
+ * dynamically allocated.
+ *
+ **********************************************************/
 
 int
 calloc_dyn_plasma (nelem)
@@ -672,102 +570,93 @@ calloc_dyn_plasma (nelem)
 {
   int n;
 
-  for (n = 0; n < nelem + 1; n++)       //We loop over all elements in the plasma array, adding one for an empty cell used for extrapolations.
+
+/*  Loop over all elements in the plasma array, adding one for an empty cell 
+ *  used for extrapolations.
+ */
+
+  for (n = 0; n < nelem + 1; n++)
   {
     if ((plasmamain[n].density = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for density\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].partition = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for partition\n");
-      exit (0);
-    }
-    if ((plasmamain[n].PWdenom = calloc (sizeof (double), nions)) == NULL)
-    {
-      Error ("calloc_dyn_plasma: Error in allocating memory for PWdenom\n");
-      exit (0);
-    }
-    if ((plasmamain[n].PWdtemp = calloc (sizeof (double), nions)) == NULL)
-    {
-      Error ("calloc_dyn_plasma: Error in allocating memory for PWtemp\n");
-      exit (0);
-    }
-    if ((plasmamain[n].PWnumer = calloc (sizeof (double), nions)) == NULL)
-    {
-      Error ("calloc_dyn_plasma: Error in allocating memory for PWnumer\n");
-      exit (0);
-    }
-    if ((plasmamain[n].PWntemp = calloc (sizeof (double), nions)) == NULL)
-    {
-      Error ("calloc_dyn_plasma: Error in allocating memory for PWntemp\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].ioniz = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for ioniz\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].recomb = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for recomb\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].scatters = calloc (sizeof (int), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for scatters\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].xscatters = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for xscatters\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].heat_ion = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for heat_ion\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].cool_rr_ion = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for cool_rr_ion\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].lum_rr_ion = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for lum_rr_ion\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].inner_recomb = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for inner_recomb\n");
-      exit (0);
+      Exit (0);
     }
     if ((plasmamain[n].cool_dr_ion = calloc (sizeof (double), nions)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for lum_inner_recomb\n");
-      exit (0);
+      Exit (0);
     }
 
-//A few more variable length arrays 
 
     if ((plasmamain[n].levden = calloc (sizeof (double), nlte_levels)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for levden\n");
-      exit (0);
+      Exit (0);
     }
 
     if ((plasmamain[n].recomb_simple = calloc (sizeof (double), nphot_total)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for recomb_simple\n");
-      exit (0);
+      Exit (0);
     }
+
+    if ((plasmamain[n].recomb_simple_upweight = calloc (sizeof (double), nphot_total)) == NULL)
+    {
+      Error ("calloc_dyn_plasma: Error in allocating memory for recomb_simple_upweight\n");
+      Exit (0);
+    }
+
 
     if ((plasmamain[n].kbf_use = calloc (sizeof (double), nphot_total)) == NULL)
     {
       Error ("calloc_dyn_plasma: Error in allocating memory for kbf_use\n");
-      exit (0);
+      Exit (0);
     }
   }
 

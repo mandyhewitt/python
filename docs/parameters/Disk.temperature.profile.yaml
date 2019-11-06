@@ -1,11 +1,12 @@
 name: Disk.temperature.profile
 description: |
-  Multi-line description, must keep indentation.
-type: Enum (Int)
+  The choice of disk temperature profile
+type: Enumerator
 values:
-  0: standard
-  1: readin
-  2: analytic
+    standard: A Shakura - Sunyaev  disk, with a hard inner boundar
+    readin: Read the profile in from a file; the user will be queried for the name of the file
+    yso: YSO???
+    analytic: DEPRECATED??? A profile designed for the situation where the disk is being illuminated by star
 parent:
-  parameter: Condition e.g. >0 or list e.g. [1, 2, 5]
-file: setup.c
+  Disk.radiation: true
+file: setup_disk.c

@@ -1,56 +1,52 @@
+/***********************************************************/
+/** @file  py_wind_ion.c
+ * @author ksl
+ * @date   May, 2018
+ *
+ * @brief   This file contains various subroutines of py_wind.  
+ * It is not part of python!
+ *
+ * 
+ ***********************************************************/
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
- Synopsis:
- 
- 	This file contains various subroutines of py_wind.  It is not part of python!
- 	
-	ion_summary (w, element, istate, iswitch, rootname, ochoice) calculates and 
-	displays information for a specific element and ionization state.  The information
-	displayed depends upon the value of iswitch  
-	
-
-Arguments:		
-	WindPtr w;
-	int element,istate;
-	char filename[]			Output file name, if "none" then nothing is written;
-	int iswitch                     0 = ion fraction
-					1 = ion density
-					2 = number of scatters 
-     	char rootname[];                rootname of the output file
-     	int ochoice;			The screen display is always the actual value. If ochoice
-					is non-zere an output file is written.
-
-Returns:
- 
-Description:	
-	
-		
-Notes:
-
-History:
- 	97jun	ksl	Coding on py_wind began.
-	01sep	ksl	Added switch to ion summary so that ion density rather than ion fraction could
-			be printed out.  iswitch==0 --> fraction, otherwise density
-	01dec	ksl	Updated for new calling structure for two_level_atom & scattering_fraction.
-	04nov	ksl	Updated for multiple coordinate systems, i.e to use the routine display. 
-			Note that many of these summaries seem quite dated, and I have really not 
-			checked what they are supposed to do.
-	05apr	ksl	Eliminated MDIM references
-	090125	ksl	Added capability to display the number of scatters of an ion taking
-			place in a cell.
-**************************************************************/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
-
 #include "atomic.h"
 #include "python.h"
 
 
+/**********************************************************/
+/** 
+ * @brief      Print informaition about a specific ion
+ *
+ * @param [in] WindPtr W   The entire wind          
+ * @param [in] int element An elemeent
+ * @param [in] int istate A particular ion          
+ * @param [in] int iswitch  A intenger indicating what specifically
+ * to display about the ion
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *	calculates and 
+ *	displays information for a specific element and ionization state.  The information
+ *	displayed depends upon the value of iswitch  
+ *
+ * The choices for iswitch are:
+ *  * 0 ion fractions
+ *  * 1 ion denisities
+ *  * 2 number of scatters involving this ion 
+ *  * 3 the scatterd flux for this ion
+ *
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 int
 ion_summary (w, element, istate, iswitch, rootname, ochoice)
      WindPtr w;
@@ -66,10 +62,10 @@ ion_summary (w, element, istate, iswitch, rootname, ochoice)
   char filename[LINELENGTH];
   double x;
   int nplasma;
+  double nh;
 
 
 
-/* Find the CIV ion */
   nion = 0;
   while (nion < nions && !(ion[nion].z == element && ion[nion].istate == istate))
     nion++;
@@ -89,13 +85,14 @@ ion_summary (w, element, istate, iswitch, rootname, ochoice)
   {
     aaa[n] = 0;
     nplasma = w[n].nplasma;
-    if (w[n].vol > 0.0 && plasmamain[nplasma].ne > 1.0)
+    if (w[n].vol > 0.0)
     {
       if (iswitch == 0)
       {
         sprintf (name, "Element %d (%s) ion %d fractions\n", element, ele[nelem].name, istate);
         aaa[n] = plasmamain[nplasma].density[nion];
-        aaa[n] /= ((plasmamain[nplasma].density[0] + plasmamain[nplasma].density[1]) * ele[nelem].abun);
+        nh = rho2nh * plasmamain[nplasma].rho;
+        aaa[n] /= (nh * ele[nelem].abun);
       }
       else if (iswitch == 1)
       {
@@ -131,7 +128,7 @@ ion_summary (w, element, istate, iswitch, rootname, ochoice)
     for (n = 0; n < NDIM2; n++)
     {
       nplasma = w[n].nplasma;
-      if (w[n].vol > 0.0 && plasmamain[nplasma].ne > 1.0)
+      if (w[n].vol > 0.0)
       {
         if (iswitch == 0)
           x /= ((plasmamain[nplasma].density[0] + plasmamain[nplasma].density[1]) * ele[nelem].abun);
@@ -188,6 +185,30 @@ ion_summary (w, element, istate, iswitch, rootname, ochoice)
   return (0);
 }
 
+
+/**********************************************************/
+/** 
+ * @brief      Calculates tau_ave for a particular transition 
+ * of an element and ion assuming one is in resonance
+ *
+ * @param [in] WindPtr W   The entire wind          
+ * @param [in] int element An elemeent
+ * @param [in] double freq  Frequency of the line of interest
+ * @param [in] int istate A particular ion          
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ *
+ * IMPORTANT - This routine does not search for the atomic data associated
+ * with line, It assumes a nominal value.
+ *
+ **********************************************************/
 int
 tau_ave_summary (w, element, istate, freq, rootname, ochoice)
      WindPtr w;
@@ -263,29 +284,32 @@ tau_ave_summary (w, element, istate, freq, rootname, ochoice)
 }
 
 
-/***********************************************************
-               Space Telescope Science Institute
 
- Synopsis:
-   line_summary returns luminosity of a given line 
-
-Arguments:    
-  WindPtr w       The structure which defines the wind in Python
-  char rootname[] The root of the input file      
-  int ochoice     Output file type
-
-Returns:
-  File rootname.line[ELEM][ION].dat
- 
-Description:
-  For a given line from a preset selection, outputs luminosity.
-  Can cope with matom/non-matom lines.
-
-Notes:
-
-History:
-  31062016  SWM modified to add H-alpha, matoms
-**************************************************************/
+/**********************************************************/
+/** 
+ * @brief      Calculate the luminoisty for a specific line
+ *
+ * @param [in] WindPtr W   The entire wind          
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *  For a given line from a preset selection, outputs luminosity.
+ *  Can cope with matom/non-matom lines.
+ *
+ *
+ * File rootname.line[ELEM][ION].dat
+ *
+ *
+ * ### Notes ###
+ *
+ *
+ * History:
+ *  31062016  SWM modified to add H-alpha, matoms
+ *
+ **********************************************************/
 int
 line_summary (w, rootname, ochoice)
      WindPtr w;
@@ -306,25 +330,29 @@ line_summary (w, rootname, ochoice)
   int nplasma;
 
   iline = 0;
-  lambda=0;
+  lambda = 0;
   i_matom_search = 0;
-  rdint ("line (0=C-IV, 1=Hα, 2=Hβ, 3=Matom", &iline);
+  rdint ("line (0=C-IV, 1=Ha, 2=Hb, 3=Matom", &iline);
   switch (iline)
   {
-  case 0:
+  case 0:                      //Carbon-IV
     element = 6;
     istate = 4;
     lambda = 1548.1949e-8;
     break;
-  case 1:
+  case 1:                      //Hydrogen Alpha
     element = 1;
     istate = 1;
     lambda = 6562.7097e-8;
+    levu = 3;
+    levl = 2;
     break;
-  case 2:
+  case 2:                      //Hydrogen Beta
     element = 1;
     istate = 1;
     lambda = 4861.363e-8;
+    levu = 4;
+    levl = 2;
     break;
   case 3:                      //Generic matom
     i_matom_search = 1;
@@ -340,51 +368,75 @@ line_summary (w, rootname, ochoice)
   default:
     Error ("line_summary: Not a valid line.");
     exit (0);
+
   }
 
 /* Convert wavelength to energy and frequency */
-  freq_search = C / lambda;
+  freq_search = VLIGHT / lambda;
   energy = HC / lambda;
 
 /* Find the ion */
-  nion = 0;
-  while (nion < nions && !(ion[nion].z == element && ion[nion].istate == istate))
-    nion++;
-  if (nion == nions)
-  {
-    Log ("Error--element %d ion %d not found in define_wind\n", element, istate);
-    return (-1);
-  }
-  nelem = 0;
-  while (nelem < nelements && ele[nelem].z != element)
-    nelem++;
-  if (nelem == nelements)
-  {
-    Log ("line_summary: Could not find element %d", element);
-    return (-1);
-  }
-  nline = 0;
-  freq_search = C / lambda;
-
-/* Find the line */
   if (i_matom_search)
   {
+    printf ("Searching for matom line...\n");
+    nline = 0;
     while (nline < nlines && !(lin_ptr[nline]->z == element && lin_ptr[nline]->istate == istate
                                && lin_ptr[nline]->levu == levu && lin_ptr[nline]->levl == levl))
     {
       nline++;
     }
+    if (nline == nlines)
+    {
+      Error ("line_summary: Could not find line in linelist\n");
+      exit (0);
+    }
+    nelem = 0;
+    while (nelem < nelements && ele[nelem].z != element)
+      nelem++;
+    if (nelem == nelements)
+    {
+      Log ("line_summary: Could not find element %d", element);
+      return (-1);
+    }
+    nion = 0;
+    while (nion < nions && !(ion[nion].z == element && ion[nion].istate == istate))
+      nion++;
+    if (nion == nions)
+    {
+      Log ("Error--element %d ion %d not found in define_wind\n", element, istate);
+      return (-1);
+    }
   }
   else
   {
+    nion = 0;
+    while (nion < nions && !(ion[nion].z == element && ion[nion].istate == istate))
+      nion++;
+    if (nion == nions)
+    {
+      Log ("Error--element %d ion %d not found in define_wind\n", element, istate);
+      return (-1);
+    }
+    nelem = 0;
+    while (nelem < nelements && ele[nelem].z != element)
+      nelem++;
+    if (nelem == nelements)
+    {
+      Log ("line_summary: Could not find element %d", element);
+      return (-1);
+    }
+    nline = 0;
+    freq_search = VLIGHT / lambda;
+
     while (fabs (1. - lin_ptr[nline]->freq / freq_search) > 0.0001 && nline < nlines)
       nline++;
+    if (nline == nlines)
+    {
+      Error ("line_summary: Could not find line in linelist\n");
+      exit (0);
+    }
   }
-  if (nline == nlines)
-  {
-    Error ("line_summary: Could not find line in linelist\n");
-    exit (0);
-  }
+
 
   rdint ("line_transfer(0=pure.abs,1=pure.scat,2=sing.scat,3=escape.prob, 4=off, diagnostic)", &geo.line_mode);
   if (geo.line_mode == 0)
@@ -404,7 +456,15 @@ line_summary (w, rootname, ochoice)
   }
 
   strcpy (name, "");
-  sprintf (name, "Luminosity %d (%s) ion %d fractions\n", element, ele[nelem].name, istate);
+  if (lin_ptr[nline]->macro_info == 1)
+  {
+    sprintf (name, "%d Luminosity %d (%s) ion %d fractions\n", nline, element, ele[nelem].name, istate);
+  }
+  else
+  {
+    sprintf (name, "%d Luminosity %d (%s) ion %d matom %d-%d fractions\n", nline, element, ele[nelem].name, istate,
+             lin_ptr[nline]->levu, lin_ptr[nline]->levl);
+  }
 
   tot = 0.0;
   for (n = 0; n < NDIM2; n++)
@@ -422,7 +482,7 @@ line_summary (w, rootname, ochoice)
       {                         //If this is not a matom line
         two_level_atom (lin_ptr[nline], &plasmamain[nplasma], &d1, &d2);
       }
-      x = (d2) * a21 (lin_ptr[nline]) * H * lin_ptr[nline]->freq * w[n].vol;
+      x = (d2) * a21 (lin_ptr[nline]) * PLANCK * lin_ptr[nline]->freq * w[n].vol;
 
       if (geo.line_mode != 4)
       {
@@ -475,10 +535,30 @@ line_summary (w, rootname, ochoice)
   return (0);
 }
 
+
+/**********************************************************/
+/** 
+ * @brief      Get the total emission of the cells
+ *
+ * @param [in] WindPtrYW   The entire wind          
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *
+ * Calls total_emission
+ *
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 int
 total_emission_summary (w, rootname, ochoice)
      WindPtr w;
      char rootname[];
+     int ochoice;
 {
   double tot;
   int n;
@@ -512,10 +592,29 @@ total_emission_summary (w, rootname, ochoice)
   return (0);
 }
 
+
+/**********************************************************/
+/**    
+ * @brief      Find the electron temperature where heating matches
+ * the cooling
+ *
+ * @param [in] WindPtr   The entire wind          
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 int
 modify_te (w, rootname, ochoice)
      WindPtr w;
      char rootname[];
+     int ochoice;
 {
   int n;
   double x;
@@ -530,7 +629,6 @@ modify_te (w, rootname, ochoice)
     aaa[n] = 0;
     if (w[n].vol > 0.0 && (x = plasmamain[nplasma].heat_tot) > 1.0)
     {
-      //OLD aaa[n] = t_e = calc_te (&plasmamain[nplasma], TMIN, 1.2 * plasmamain[nplasma].t_r);
       aaa[n] = t_e = calc_te (&plasmamain[nplasma], MIN_TEMP, 1.2 * plasmamain[nplasma].t_r);
     }
   }
@@ -549,6 +647,26 @@ modify_te (w, rootname, ochoice)
 
 
 
+/**********************************************************/
+/** 
+ * @brief      Write out the emission measure for a specific
+ * ionization state of an element
+ *
+ * @param [in] WindPtr W   The entire wind          
+ * @param [in] int element The z for an element     
+ * @param [in] int istate  The ion state of an element
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
+
 int
 partial_measure_summary (w, element, istate, rootname, ochoice)
      WindPtr w;
@@ -566,7 +684,6 @@ partial_measure_summary (w, element, istate, rootname, ochoice)
 
 
 
-/* Find the CIV ion */
   total = 0;
   nion = 0;
   while (nion < nions && !(ion[nion].z == element && ion[nion].istate == istate))
@@ -623,7 +740,26 @@ partial_measure_summary (w, element, istate, rootname, ochoice)
 }
 
 
-int collision_summary (w, rootname, ochoice)
+/**********************************************************/
+/** 
+ * @brief      Write out the collision strengths (and related information)
+ * for all of the lines 
+ *
+ * @param [in] WindPtr W   The entire wind          
+ * @param [in] char rootname []   The rootname of the windsave file
+ * @param [in] int ochoice A parameter indcating whether results should
+ * be written to a file          
+ * @return   Always returns 0  
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
+
+int
+collision_summary (w, rootname, ochoice)
      WindPtr w;
      char rootname[];
      int ochoice;
@@ -631,28 +767,30 @@ int collision_summary (w, rootname, ochoice)
   int nline, int_te;
   double t_e, qup, qdown, A, wavelength;
   char filename[LINELENGTH], suffix[LINELENGTH];
-  FILE *fopen (), *fptr;
+  FILE *fopen (), *fptr = NULL;
 
   t_e = 10000.0;
 
   /* Input from user to request temperature */
   rddoub ("electron temperature for calculation:", &t_e);
-  int_te = (int) t_e; // for file label.
+  int_te = (int) t_e;           // for file label.
 
-  if (ochoice) {
+  if (ochoice)
+  {
     /* open filename root.coll.dat */
     strcpy (filename, rootname);
     sprintf (suffix, ".t%d.coll.dat", int_te);
     strcat (filename, suffix);
     fptr = fopen (filename, "w");
 
-    Log("\nWriting collision strengths to file %s...\n\n", filename);
+    Log ("\nWriting collision strengths to file %s...\n\n", filename);
 
     fprintf (fptr, "# Collision strengths at electron temperature %.1fK\n", t_e);
     fprintf (fptr, "# For atomic data file %s\n", geo.atomic_filename);
     fprintf (fptr, "line wavelength z istate levu levl q12 q21 a21 macro_info\n");
   }
-  else {
+  else
+  {
     Log ("Collision strengths at electron temperature %.1fK\n", t_e);
     Log ("line wavelength z istate levu levl q12 q21 a21 macro_info\n");
   }
@@ -661,28 +799,29 @@ int collision_summary (w, rootname, ochoice)
 
   while (nline < nlines)
   {
-    wavelength = C / lin_ptr[nline]->freq / ANGSTROM;
-    
-    qup = q12(lin_ptr[nline], t_e);
-    qdown = q21(lin_ptr[nline], t_e);
+    wavelength = VLIGHT / lin_ptr[nline]->freq / ANGSTROM;
+
+    qup = q12 (lin_ptr[nline], t_e);
+    qdown = q21 (lin_ptr[nline], t_e);
     A = a21 (lin_ptr[nline]);
 
-    if (ochoice) {
-      fprintf(fptr, "%d %8.4e %d %d %d %d %8.4e %8.4e %8.4e %d\n",
-               nline, wavelength, lin_ptr[nline]->z, 
-               lin_ptr[nline]->istate, lin_ptr[nline]->levu, lin_ptr[nline]->levl,
-               qup, qdown, A, lin_ptr[nline]->macro_info);
+    if (ochoice)
+    {
+      fprintf (fptr, "%d %8.4e %d %d %d %d %8.4e %8.4e %8.4e %d\n",
+               nline, wavelength, lin_ptr[nline]->z,
+               lin_ptr[nline]->istate, lin_ptr[nline]->levu, lin_ptr[nline]->levl, qup, qdown, A, lin_ptr[nline]->macro_info);
     }
-    else {
-      Log("%d %8.4e %d %d %d %d %8.4e %8.4e %8.4e %d\n",
-              nline, wavelength, lin_ptr[nline]->z, 
-              lin_ptr[nline]->istate, lin_ptr[nline]->levu, lin_ptr[nline]->levl,
-              qup, qdown, A, lin_ptr[nline]->macro_info);
+    else
+    {
+      Log ("%d %8.4e %d %d %d %d %8.4e %8.4e %8.4e %d\n",
+           nline, wavelength, lin_ptr[nline]->z,
+           lin_ptr[nline]->istate, lin_ptr[nline]->levu, lin_ptr[nline]->levl, qup, qdown, A, lin_ptr[nline]->macro_info);
     }
     nline++;
   }
 
-  if (ochoice) fclose (fptr);
+  if (ochoice)
+    fclose (fptr);
 
   return (0);
 }

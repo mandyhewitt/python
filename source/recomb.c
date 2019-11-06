@@ -1,89 +1,28 @@
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis:
 
-The routines in this file all have to do with photoionization and 
-recombination rates and emissivities.  
-
-(Note -- These descriptions need to be cleaned up and checked at some point. 
-Today 06jul27 -- I just reorganized things more sensibly, but this section
-should describe all of the routines generically)
-
-Calculate the free-bound emissivity of a cell.   This is the emissivity,
-eg ne * ni *enu.  It includes the electron density
-
-  Description:
-
-This is the version of the program that used detailed balance to
-calculate the emissivity.  The specific formulation implemented
-is that described most clearly in Hazy, but that comes from
-Brown and Matthews 1970.
-
-ion_choice      0- (nions-1) causes fb to return the emissivity of
-		a specific ion number, i.e. 0 will be h1, 2 will be
-		he1, etc.   
-		>=nions returns the total emissivity
-		<0  returns the emissivity of all metals, under the
-		assumption that H and He comprise the first five
-		ions in the input array.
-fb_choice	When an ion recombines there are three possible quantities
-		of interest.
-			0=the emissivity/per unit frequency of the plasma
-			1=the heat lost from the electrons (that is the
-				fraction of the emissivity that does not
-				go into the binding energy of the level
-				to which the electron+ion are recombining)
-			2=the emissivity in photons/unit frequency
-		0 should be used in calculations of the emission spectrum but
-		1 and should be used in energy loss and gain  calculations), while
-	        2 should be used in ion densities and levels
-                                                                                                   
-  Arguments:  
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-                                                                                                   
-
-For reference here is  the freebound structures that can be used for both the
-specific emissivity of a free-bound transition.  But the real structue is
-in python.h
-
-	#define NTEMPS        100             // The number of temperatures which are stored in each fbstruct
-	#define NFB   10              // The maximum number of frequency intervals for which the fb emission is calculated
-
-	struct fbstruc
-	{
-	  double f1, f2;
-	  double emiss[NIONS][NTEMPS];
-	}
-	freebound[NFB];
-
-	double xnrecomb[NIONS][NTEMPS];       // There is only one set of recombination coefficients
-	double fb_t[NTEMPS];
-
-                                                                                                   
-  History:
-	01oct	ksl	Began work
-	01nov	ksl	Adapt to include Verland cross-sections as well.
-	02jun	ksl	Modified so could be used to calculate emissivities in
-			photons as well as energy.
-	06jul	ksl	57h-Standardized the headers and notes.  I have not
-			really checked that everything is up to date, just
-			put it into a more readable format.
-	12jul	nsh	73-Subroutine bad_t_rr coded to generate a total
-			recombination rate from badnell type parameters
-	14jan	nsh	77a - Added some checks into the integrals, to ensure
-			we do not attempt to integrate over a range of 
-			frequencies so large that the integrand is zero over
-			an excessive range - hence causing QROMB to return
-			an answer of zero.
-                                                                                                   
- ************************************************************************/
-
+/***********************************************************/
+/** @file  recomb.c
+ * @author ksl,nsh
+ * @date   January, 2018
+ *
+ * @brief  The routines in this file all have to do with
+ * photoionization and/or
+ * recombination rates and emissivities.
+ *
+ * ###Notes###
+ *
+ * These routines are quite complex representing a lot of work by
+ * various of us over a long period of time, and it is not entirely
+ * clear that they are quite what we want at present.  It would be
+ * worthwhile to think about
+ * their structure the next time we make consider adding a physical
+ * process involving recombination.
+ *
+ * Some of the complication associated with these routines arises
+ * from run time considerations which may no longer be very relevant
+ * today with parallel processing etc.
+ *
+ *
+ ***********************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,61 +34,63 @@ in python.h
 #include "recipes.h"
 
 
+/** Next line is required for proper initialization
+ * Actual number of freqency intervals calculated */
+int nfb = 0;
 
-// Next line is left in to be sure that nfb is initialized properly at
-// the beginning of the program
-
-/* Next line is required for proper initialization */
-int nfb = 0;                    // Actual number of freqency intervals calculated
-
-/* FBEMISS was calculated as follows:
-x= 2. * PI * MELEC * BOLTZMANN / (H*H);
-x=pow(x,-1.5);
-x*=8. * PI / (C*C);
-x*= H;
-*/
+/** FBEMISS was calculated as follows:
+ * x= 2. * PI * MELEC * BOLTZMANN / (H*H);
+ * x=pow(x,-1.5);
+ * x*=8. * PI / (C*C);
+ * x*= H;
+ */
 #define FBEMISS   7.67413e-62   // Calculated with constants.c
 
 
 
-/* These are external structures used primarily because we need to call 
+/* These are external structures used primarily because we need to call
 Numerical Recipes routines from fb_verner and fb_topbase */
 
-struct topbase_phot *fb_xtop;   //Topbase description of a photoionization x-section
-double fbt;                     // Temperature at which thee emissivity is calculated
-int fbfr;                       // fb_choice (see above)
+///Topbase description of a photoionization x-section
+struct topbase_phot *fb_xtop;
+
+/// Temperature at which thee emissivity is calculated
+double fbt;
+
+/// fb_choice (see above)
+int fbfr;
 
 
 
 
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: fb_topbase_partial returns the partial (for a specific ion) emissivity or 
-  recombination rate for ions described in terms of Topbase photoionization x-sections.
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
 
-  Some arguments are externally passed, including fbfr which determines whether
-  one is computing the total emission (0), the reduced emission (1), or the rate
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-	The routines fb_verner_partial and fb_topbase_partial return the emissivity 
-	at a specific freqency.  Because they are called by some NR recipes routines 
-	that integrates over frequency, most of the information for these routines
-	 has to be and is passed by the external structures. 
-                                                                                                   
-  History:
-	02jul	ksl	Removed all references to the wind cell.
-                                                                                                   
- ************************************************************************/
 
+/**********************************************************/
+/**
+ * @brief      returns the partial (for a specific ion) emissivity or
+ * recombination rate for ions described in terms of Topbase photoionization x-sections.
+ *
+ * @param [in] double  freq   The freqeuncy of interest
+ * @return     An emissivity or a recombination rate
+ *
+ * What the routine returns depends on the external variable fbfr. The
+ * choices are:
+ *
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ * * FB_RATE         Calulate the fb recombinarion rate
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ *
+ * This routine used to be used for integrations, the wrapper routine fb_topbase_partial2 is
+ * now used for that purpose - this is only used directly now.
+ *
+ *
+ *
+ **********************************************************/
 
 double
 fb_topbase_partial (freq)
@@ -175,12 +116,11 @@ fb_topbase_partial (freq)
     gn = ion[nion].g;
   else
   {
-    Error ("fb_topbase_partial: Did not understand cross-section type %i for ion %i. Setting multiplicity to zero!\n",
-           ion[nion].phot_info, nion);
+    Error
+      ("fb_topbase_partial: Did not understand cross-section type %i for ion %i. Setting multiplicity to zero!\n",
+       ion[nion].phot_info, nion);
     gn = 0.0;
   }
-
-
 
   gion = ion[nion + 1].g;       // Want the g factor of the next ion up
   x = sigma_phot (fb_xtop, freq);
@@ -193,74 +133,96 @@ fb_topbase_partial (freq)
   if (fbfr == FB_REDUCED)
     partial *= (freq - fthresh) / freq;
   else if (fbfr == FB_RATE)
-    partial /= (H * freq);
-  
-  
+    partial /= (PLANCK * freq);
+
+
 
   return (partial);
 }
 
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: integ_fb calculates the integrated emissivity of the plasma, or the number of 
-recombinations per second of a particular ion.  
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-	t		    The temperature at which the emissivity 
-			    or recombination rate is calculated
-	f1,f2		The frequency limits on the calculation 
-			    of the emissivity (ignored if the number 
-			    of recombinations is desired.
-	nion		The ion for which the emissivity is returned
-	fb_choice	A switch which determines exactly what is to
-			    be returned: 
-			    0- the full emissivity including
-			    the energy associated associated with the
-			    threshold
-			    1- the (reduced) emissivity, e.g. excluding
-			    the threshold energy.  This is the energy
-			    associated with kinetic energy loss
-			    2- the specific recombination rate.
-mode	inner or outer shell
 
-                                                                                                   
-                                                                                                   
-  Returns:
-	The routine returns the specific emissivity, e.g. the emissivity and
-	or recombination rate per electron and per ion.
-                                                                                                   
-  Notes:
-	As written, in July02, the idea is that if the recombination coefficients
-	have been calculated the program is going to return an interpolated
-	coefficient, if not, it will calculate it from scratch.  (The later is 
-	much slower if one has to do it a lot of times.
+/**********************************************************/
+/**
+ * @brief      This is a wrapper for fb_topbase_partial to allow it to be used for integrations
+ *
+ * @param [in] double  freq   The freqeuncy of interest
+ * @param [in] void  params   An extra (unused) variable to make it paletable for the gsl integrator
 
-	???? Error -- There is definitely an error because the program does
-	not support option 0, and this is needed for calculation of the
-	relative numbers of photons by fb vs free free photons.  ksl 02jul
- 
-                                                                                                   
-                                                                                                   
-  History:
-	02jul	ksl	Modified to elimate need to include information about the cell.
-			At this point integ_fb yields answers per electron and per ion.
-			Moved DENSITY_PHOT_MIN test out of integ_fb
-	02jul	ksl	Original routines has been pushed down to xinteg_fb so
-			that integ_fb can be modified to use stored values when
-			desired.
-                                                                                                   
- ************************************************************************/
+ * @return     An emissivity or a recombination rate
+ *
+ * What the routine returns depends on the external variable fbfr. The
+ * choices are:
+ *
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ * * FB_RATE         Calulate the fb recombinarion rate
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ *
+ * This routine is integrated over frequency using a gsl routine wrapped in the num_int
+ * routine for that purpsoe.  Much of the information is passed externally for historical reasons
+ * In Princible the extranl information could be contrained in the parameters.
+ *
+ *
+ *
+ **********************************************************/
 
+
+double
+fb_topbase_partial2 (double freq, void *params)
+{
+  double partial;
+
+  partial = fb_topbase_partial (freq);
+
+  return (partial);
+}
+
+
+
+
+/**********************************************************/
+/**
+ * @brief      calculates the integrated emissivity of the plasma, or the number of
+ * recombinations per second of a particular ion within defined frequency bands.
+ *
+ * @param [in] double  t   The temperature at which the emissivity
+ * @param [in] double  f1   The minimum frequency
+ * @param [in] double  f2   The maximum frequency
+ * @param [in, out] int  nion   The ion for which the emissivity is returned
+ * @param [in, out] int  fb_choice   A switch which determines exactly what is to be returned
+ * @param [in, out] int  mode   A switch which indicates whether one is interested in normal
+ * radiative recombination (OUTER_SHELL) or inner shell recombinaiton (INNER_SHELL)
+ * @return     The routine returns the specific emissivity, e.g. the emissivity and
+ * 	or recombination rate per electron and per ion.
+ *
+ * 	The options are as follows:
+ *
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ * * FB_RATE         Calulate the fb recombinarion rate
+ *
+ *
+ * @details
+ *
+ * The routine returns the integral of the emissivity (or recombination rate) over the
+ * frequency interval.  The routine uses pre-calculated values if that is possible, or
+ * calculate a new values if that is not possible. (In that case xinteg_fb updates the
+ * set of pre-calculated values so that they can be used in a future call.
+ *
+ * ### Notes ###
+ *
+ *
+ **********************************************************/
 
 double
 integ_fb (t, f1, f2, nion, fb_choice, mode)
      double t;                  // The temperature at which to calculate the emissivity
-     double f1, f2;             // The frequencies overwhich to integrate the emissivity
-     int nion;                  // The ion for which the "specific emissivity is calculateed
+     double f1, f2;             // The frequencies over which to integrate the emissivity
+     int nion;                  // The ion for which the "specific emissivity" is calculateed
      int fb_choice;             // 0=full, 1=reduced, 2= rate
      int mode;                  // 1- outer shell 2-inner shell
 {
@@ -313,10 +275,10 @@ integ_fb (t, f1, f2, nion, fb_choice, mode)
       return (fnu);
     }
     Error ("integ_fb: Unknown fb_choice(%d)\n", fb_choice);
-    exit (0);
+    Exit (0);
   }
 
-  else if (mode == INNER_SHELL)           // inner shell
+  else if (mode == INNER_SHELL) // inner shell
   {
     if (fb_choice == FB_FULL)
     {
@@ -357,56 +319,66 @@ integ_fb (t, f1, f2, nion, fb_choice, mode)
       return (fnu);
     }
     Error ("integ_fb: Unknown fb_choice(%d)\n", fb_choice);
-    exit (0);
+    Exit (0);
   }
 
   Error ("integ_fb: Unknown mode(%d)\n", mode);
-  exit (0);
-
+  Exit (0);
+  return (0);
 }
 
 
 
 
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: total_fb returns the energy lost from the plasma due to fb emission in a
-	single wind cell at a temperature t between the frequncy limits f1 and f2.  
-	The energy lost is just the kinetic energy lost from the plasma 
-	because it does not include the ionization potential
-	associated with each recombination.  Python tracks effectively the kinetic energy
-	of the plasma (not the potential energy available if everything recombined. 
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-                                                                                                   
-                                                                                                   
-  History:
-  02jul	ksl	Modified so computes fb contributions of individual ions, instead
- 		of just h, he, and z, and so that one does not need to pass
- 		the entire wind cell to integ_fb 
-  02jul	ksl	Added call to init_freebound so that precalculated values would
-  		be used where possible.  This seemed the most conservative place
-		to put these calls since total_fb is always called whenever the
-		band-limited luminosities are needed.
-                                                                                                   
- ************************************************************************/
 
+
+
+/**********************************************************/
+/**
+ * @brief      returns the energy lost from the plasma due to fb emission in a
+ * 	single wind cell at a temperature t between the frequncy limits f1 and f2.
+ * 	The energy lost is just the kinetic energy lost from the plasma
+ * 	because it does not include the ionization potential
+ * 	associated with each recombination.  Python tracks effectively the kinetic energy
+ * 	of the plasma (not the potential energy available if everything recombined).
+ *
+ * @param [in] WindPtr  one   The wind cell of interest
+ * @param [in] double  t   The temperature of the cell
+ * @param [in] double  f1   The minimum frequency
+ * @param [in] double  f2   The maximum frequency
+ * @param [in] int  fb_choice   A switch controlling whether emissivites or rates are
+ * returned
+ * @param [in] int  mode   A switch denoting whether normal recombination (OUTER_SHELL) or inner shell recombination (INNER_SHELL)
+ * @return     The routine calculates an emissivity for normal recombination or a cooling rate for normal or dielectronic recombination
+ *
+ * If OUTER_SHELL is chosen then the options are
+ *
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ *
+ * If INNER_SHELL is chosen the recombination rate is returned.
+ *
+ * @details
+ *
+ *
+ * ### Notes ###
+ * The results in this routine are all based on the Milne relation
+ *
+ * The routine is unusual in that one passes a the wind cell and
+ * not the plasma cell.  This probably should be changed.
+ *
+ * Note that FB_REDUCED is not an option for this routine
+ *
+ * Question: What is preventing us from calculating a dielectronic emission rate?
+ *
+ **********************************************************/
 
 double
 total_fb (one, t, f1, f2, fb_choice, mode)
      WindPtr one;
      double t, f1, f2;
      int fb_choice;
-     int mode;                  //inner=2 outer=1
+     int mode;
 {
   double total;
   int nion;
@@ -417,7 +389,7 @@ total_fb (one, t, f1, f2, fb_choice, mode)
   xplasma = &plasmamain[nplasma];
 
   if (t < 100. || f2 < f1)
-      t=100.;   /* Set the temperature to 100 K so that if there are free electrons emission by this process continues */ 
+    t = 100.;                   /* Set the temperature to 100 K so that if there are free electrons emission by this process continues */
 
 // Initialize the free_bound structures if that is necessary
   if (mode == OUTER_SHELL)
@@ -438,21 +410,23 @@ total_fb (one, t, f1, f2, fb_choice, mode)
     {
       if (mode == OUTER_SHELL)
       {
-		  if (fb_choice == FB_FULL) // we are calculating a luminosity
-		  {
-             total += xplasma->lum_rr_ion[nion] = xplasma->vol * xplasma->ne * xplasma->density[nion + 1] * integ_fb (t, f1, f2, nion, fb_choice, mode);
-		  	 if (ion[nion].z > 3)
-                  xplasma->lum_rr_metals += xplasma->lum_rr_ion[nion];
-	      }
-	      else  // we are calculating a cooling rate
-	      {
-             total += xplasma->cool_rr_ion[nion] = xplasma->vol * xplasma->ne * xplasma->density[nion + 1] * integ_fb (t, f1, f2, nion, fb_choice, mode);
-		  	 if (ion[nion].z > 3)
-                  xplasma->cool_rr_metals += xplasma->cool_rr_ion[nion];
-		  
-	      } 
+        if (fb_choice == FB_FULL)       // we are calculating a luminosity
+        {
+          total += xplasma->lum_rr_ion[nion] =
+            xplasma->vol * xplasma->ne * xplasma->density[nion + 1] * integ_fb (t, f1, f2, nion, fb_choice, mode);
+          if (ion[nion].z > 3)
+            xplasma->lum_rr_metals += xplasma->lum_rr_ion[nion];
+        }
+        else                    // we are calculating a cooling rate
+        {
+          total += xplasma->cool_rr_ion[nion] =
+            xplasma->vol * xplasma->ne * xplasma->density[nion + 1] * integ_fb (t, f1, f2, nion, fb_choice, mode);
+          if (ion[nion].z > 3)
+            xplasma->cool_rr_metals += xplasma->cool_rr_ion[nion];
+
+        }
       }
-      else if (mode == INNER_SHELL)  // at present we do not compute a luminosity from DR
+      else if (mode == INNER_SHELL)     // at present we do not compute a luminosity from DR
         total += xplasma->cool_dr_ion[nion] =
           xplasma->vol * xplasma->ne * xplasma->density[nion + 1] * integ_fb (t, f1, f2, nion, fb_choice, mode);
 
@@ -463,68 +437,44 @@ total_fb (one, t, f1, f2, fb_choice, mode)
 }
 
 
-
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: one_fb generates one free bound photon with specific frequency limits
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-	one 	The wind cell in which the photon is being 
-		generated
-	f1,f2	The frequency limits
-                                                                                                   
-                                                                                                   
-  Returns:
-	The frequency of the fb photon that was generated.
-                                                                                                   
-  Notes:
-	57h -- This routine was a major time sync in python57g.  Most of the problem
-	was ascociated with the generation of pdfs.  So the program now has a 
-	rather multilayered approach to reducing the number of pdf generation
-	steps that has to be done.  For a long time, we simply stored a pdf in
- 	the pdf_fb array.  For python_57h, I created a new structure, photstoremain
-	which parallels plasmamain and with allows one to store photons for future
-	use.  
-	
-	It's possible the time for this routine to take could be reduced by storing
-	more than one set of extra photons for different frequncy intervals, since
-	our "banding" approach causes the frequencies to shift during the photon
-	generation cycle.  Alternatively, it is possible that changing the order
-	of photon generation could help.  But the approach adopted eliminate
-	most of the problems with the routine, and so I have not pursued that.
-
-	060802 -- ksl
-                                                                                                   
-                                                                                                   
-  History:
-	98	ksl	Coded as part of python effort
-	98oct	ksl	Removed upper limits on freqency to attempt to resolve problems with
-			different frequency limits in total_fb and one_fb
-	01oct	ksl	Completely rewritten for topbase x-sections
-	06jul	ksl	57h -- Modified to speed the program up by checking whether
-			there are free_bound frequencies that have been previsulsy
-			calculated for this cell and this condition.  Also, added
-			a section which creates and stores multiple photons for
-			the same conditions.  This reduces very significantly
-			the number of times one has to construct a pdf, which is
-			the main time sink for the program
-	17jul	NSH - changed references from PDF to CDF
-                                                                                                   
- ************************************************************************/
-
-
 double fb_x[NCDF], fb_y[NCDF];
-double fb_jumps[NLEVELS];       // There is at most one jump per level
-double xfb_jumps[NLEVELS];     // This is just a dummy array that parallels fb_jumpts
+/// There is at most one jump per level
+double fb_jumps[NLEVELS];
+/// This is just a dummy array that parallels fb_jumpts
+double xfb_jumps[NLEVELS];
 int fb_njumps = (-1);
 
 WindPtr ww_fb;
-//struct Cdf cdf_fb;
 double one_fb_f1, one_fb_f2, one_fb_te; /* Old values */
+
+
+/**********************************************************/
+/**
+ * @brief      generates one free bound photon with specific frequency limits
+ *
+ * @param [in] WindPtr  one   The wind cell in which the photon is being
+ * @param [in] double  f1   The minimum frequency
+ * @param [in] double  f2   The frequency limits
+ * @return     The frequency of the fb photon that was generated.
+ *
+ * @details
+ *
+ * 	Although the routine returns only a single photon, it stores more
+ * 	that one for the same conditions. If the routine is called mulitiple
+ * 	times from the same cell with the same frequency limits it will use the pre-
+ * 	stored values.  This was intended to avoid the process of having to
+ * 	generate cdfs multiple times
+ *
+ * ### Notes ###
+ *
+ *
+ * 	@bug This routine contains questions from Stuart in May 04 that have never been
+ * 	addressed. Furthemore, the routine has a parameter delta which is used to decide
+ * 	whether one is close enough in temperature to a previously generated DCF. This
+ * 	is set to 500, which is probably OK if the temperatures are high, but in appropriate
+ * 	if T is of order 1000 K.
+ *
+ **********************************************************/
 
 double
 one_fb (one, f1, f2)
@@ -532,7 +482,7 @@ one_fb (one, f1, f2)
      double f1, f2;             /* freqmin and freqmax */
 {
   double freq, tt, delta;
-  int n,nn,nnn;
+  int n, nn, nnn;
   double fthresh, dfreq;
   int nplasma;
   PlasmaPtr xplasma;
@@ -541,15 +491,15 @@ one_fb (one, f1, f2)
   nplasma = one->nplasma;
   xplasma = &plasmamain[nplasma];
   xphot = &photstoremain[nplasma];
-  
+
 
   if (f2 < f1)
   {
     Error ("one_fb: f2 %g < f1 %g Something is rotten  t %g\n", f2, f1, xplasma->t_e);
-    exit (0);
+    Exit (0);
   }
 
-/* Check if an apprpriate photon frequency has already been generated, and 
+/* Check if an apprpriate photon frequency has already been generated, and
 use that instead if possible --  57h */
   tt = xplasma->t_e;
   if (xphot->n < NSTORE && xphot->f1 == f1 && xphot->f2 == f2 && xphot->t == tt)
@@ -574,17 +524,17 @@ use that instead if possible --  57h */
        put in increasing frequency order */
 
     if (f1 != one_fb_f1 || f2 != one_fb_f2)
-    {                           // Regenerate the jumps 
+    {                           // Regenerate the jumps
       fb_njumps = 0;
       for (n = 0; n < nphot_total; n++)
-      {                         //IS THIS ADDED BRACKET CORRECT? (SS, MAY04)
+      {
         fthresh = phot_top_ptr[n]->freq[0];
         if (f1 < fthresh && fthresh < f2)
         {
           fb_jumps[fb_njumps] = fthresh;
           fb_njumps++;
         }
-      }                         //IS THIS CORRECT? (SS, MAY04)
+      }
 
 
 
@@ -593,107 +543,90 @@ use that instead if possible --  57h */
        * cdf.c when more than one jump was intended
        */
 
-	  if (fb_njumps > 1) //We only need to sort and compress if we have more than one jump
-	  {
-      fb_njumps=sort_and_compress(fb_jumps,xfb_jumps,fb_njumps);
-      for (n=0;n<fb_njumps;n++){
-          fb_jumps[n]=xfb_jumps[n];
-	  }
+      if (fb_njumps > 1)        //We only need to sort and compress if we have more than one jump
+      {
+        fb_njumps = sort_and_compress (fb_jumps, xfb_jumps, fb_njumps);
+        for (n = 0; n < fb_njumps; n++)
+        {
+          fb_jumps[n] = xfb_jumps[n];
+        }
       }
 
 
     }
-	
-	
-//	f2=1e16;
-//	f1=1e15;
-//	xplasma->t_e=5000;
-	
-	
 
-    //!BUG SSMay04
-    //It doesn't seem to work unless this is zero? (SS May04)
-    // fb_njumps = 0;              // FUDGE (SS, May04)
 
-    /* Note -- Need to fix this to get jumps properly, that is the
-       frequencies need to allow for the jumps !! ??? */
-	
-	/*NSH 1707 - modified the loop below to ensure we have points just below and above any jumps */
-	
-  nnn=0;   //Zero the index for elements in the flux array
-	nn=0;  //Zero the index for elements in the jump array
-	  n=0;  //Zero the counting element for equally spaced frequencies
-    dfreq = (f2 - f1) / (ARRAY_PDF-1); //This is the frequency spacing for the equally spaced elements
-    while (n < (ARRAY_PDF) && nnn < NCDF)   //We keep going until n=ARRAY_PDF-1, which will give the maximum required frequency
+
+    /*NSH 1707 - modified the loop below to ensure we have points just below and above any jumps */
+
+    nnn = 0;                    //Zero the index for elements in the flux array
+    nn = 0;                     //Zero the index for elements in the jump array
+    n = 0;                      //Zero the counting element for equally spaced frequencies
+    dfreq = (f2 - f1) / (ARRAY_PDF - 1);        //This is the frequency spacing for the equally spaced elements
+    while (n < (ARRAY_PDF) && nnn < NCDF)       //We keep going until n=ARRAY_PDF-1, which will give the maximum required frequency
     {
-		freq=f1 + dfreq * n;  //The frequency of the array element we would make in the normal run of things
-		if (freq > fb_jumps[nn] && nn < fb_njumps) //The element we were going to make has a frequency abouve the jump
-		{
-			fb_x[nnn]=fb_jumps[nn]*(1.-DELTA_V/(2.*C));  //We make one frequency point DELTA_V cm/s below the jump
-			fb_y[nnn]=fb (xplasma, xplasma->t_e, fb_x[nnn], nions, FB_FULL); //And the flux for that point
-			nnn=nnn+1;			//increase the index of the created array
-			fb_x[nnn]=fb_jumps[nn]*(1.+DELTA_V/(2*C));  //And one frequency point just above the jump
-			fb_y[nnn]=fb (xplasma, xplasma->t_e, fb_x[nnn], nions, FB_FULL); //And the flux for that point
-			nn=nn+1;    //We heave dealt with this jump - on to the next one
-			nnn=nnn+1;  //And we will be filling the next array element next time
-		}
-		else  //We haven't hit a jump
-		{
-			if (freq > fb_x[nnn-1])  //Deal with the unusual case where the upper point in our 'jump' pair is above the next regular point
-				{
-      			fb_x[nnn] = freq;   //Set the next array element frequency
-      			fb_y[nnn] = fb (xplasma, xplasma->t_e, fb_x[nnn], nions, FB_FULL); //And the flux
-				n=n+1;  //Increment the regular grid counter
-	  	  		nnn=nnn+1; //Increment the generated array counter
-  				}
-  	  		else //We dont need to make a new point, the upper frequency pair of the last jump did the trick
-  		  		{
-	  			n=n+1;  //We only need to increment our regualr grid counter
-  		  		}
- 	 	}
+      freq = f1 + dfreq * n;    //The frequency of the array element we would make in the normal run of things
+      if (freq > fb_jumps[nn] && nn < fb_njumps)        //The element we were going to make has a frequency abouve the jump
+      {
+        fb_x[nnn] = fb_jumps[nn] * (1. - DELTA_V / (2. * VLIGHT));      //We make one frequency point DELTA_V cm/s below the jump
+        fb_y[nnn] = fb (xplasma, xplasma->t_e, fb_x[nnn], nions, FB_FULL);      //And the flux for that point
+        nnn = nnn + 1;          //increase the index of the created array
+        fb_x[nnn] = fb_jumps[nn] * (1. + DELTA_V / (2 * VLIGHT));       //And one frequency point just above the jump
+        fb_y[nnn] = fb (xplasma, xplasma->t_e, fb_x[nnn], nions, FB_FULL);      //And the flux for that point
+        nn = nn + 1;            //We heave dealt with this jump - on to the next one
+        nnn = nnn + 1;          //And we will be filling the next array element next time
+      }
+      else                      //We haven't hit a jump
+      {
+        if (freq > fb_x[nnn - 1])       //Deal with the unusual case where the upper point in our 'jump' pair is above the next regular point
+        {
+          fb_x[nnn] = freq;     //Set the next array element frequency
+          fb_y[nnn] = fb (xplasma, xplasma->t_e, fb_x[nnn], nions, FB_FULL);    //And the flux
+          n = n + 1;            //Increment the regular grid counter
+          nnn = nnn + 1;        //Increment the generated array counter
+        }
+        else                    //We dont need to make a new point, the upper frequency pair of the last jump did the trick
+        {
+          n = n + 1;            //We only need to increment our regualr grid counter
+        }
+      }
     }
-	
-	//Ensure the last point lines up exatly with f2
-	
-	fb_x[nnn-1]=f2;
-	fb_y[nnn-1]=fb (xplasma, xplasma->t_e, f2, nions, FB_FULL);
-	
 
-	if (nnn > NCDF)
-	{
-		Error ("one _fb: Overflow of working array\n");
-		exit (0);
-	}
- 
-		
-	/* At this point, the variable nnn stores the number of points */
-	
-//	for (n=0;n<nnn;n++)
-//		printf ("FB_TEST te=%e freq %e emittance %e out\n",xplasma->t_e,fb_x[n],fb_y[n]);
-	
-//	exit(0);
+    //Ensure the last point lines up exatly with f2
+
+    fb_x[nnn - 1] = f2;
+    fb_y[nnn - 1] = fb (xplasma, xplasma->t_e, f2, nions, FB_FULL);
+
+
+    if (nnn > NCDF)
+    {
+      Error ("one _fb: Overflow of working array\n");
+      Exit (0);
+    }
+
+
+    /* At this point, the variable nnn stores the number of points */
+
 
     if (cdf_gen_from_array (&cdf_fb, fb_x, fb_y, nnn, f1, f2) != 0)
     {
-      Error ("one_fb after error: f1 %g f2 %g te %g ne %g nh %g vol %g\n",
+      Error ("one_fb after cdf_gen_from_array error: f1 %g f2 %g te %g ne %g nh %g vol %g\n",
              f1, f2, xplasma->t_e, xplasma->ne, xplasma->density[1], one->vol);
       Error ("Giving up\n");
-      exit (0);
+      Exit (0);
     }
     one_fb_te = xplasma->t_e;
     one_fb_f1 = f1;
     one_fb_f2 = f2;             /* Note that this may not be the best way to check for a previous cdf */
   }
 
-/* OK, we have not created a new cdf actually.  We are in a position to
-generate photons */
-
-  //Debug ("one_fb, got here 2\n");
+/* OK, generate photons */
 
 /* First generate the photon we need */
   freq = cdf_get_rand (&cdf_fb);
-  if (freq<f1 || freq > f2) {
-      Error("one_fb:  freq %e  freqmin %e freqmax %e out of range\n",freq,f1,f2);
+  if (freq < f1 || freq > f2)
+  {
+    Error ("one_fb:  freq %e  freqmin %e freqmax %e out of range\n", freq, f1, f2);
   }
 
 /* Now create and store for future use a set of additonal photons */
@@ -701,9 +634,10 @@ generate photons */
   for (n = 0; n < NSTORE; n++)
   {
     xphot->freq[n] = cdf_get_rand (&cdf_fb);
-  if (xphot->freq[n]<f1 || xphot->freq[n] > f2) {
-      Error("one_fb:  freq %e  freqmin %e freqmax %e out of range\n",xphot->freq[n],f1,f2);
-  }
+    if (xphot->freq[n] < f1 || xphot->freq[n] > f2)
+    {
+      Error ("one_fb:  freq %e  freqmin %e freqmax %e out of range\n", xphot->freq[n], f1, f2);
+    }
 
   }
   xphot->n = 0;
@@ -715,42 +649,31 @@ generate photons */
 
 
 
-
-
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: num_recomb calculates the total number of recombinations in (units of #/cm**2/s) 
-   in the cell per second for the all ions.    
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-
-		mode - wether we are coputing inner shell or outer shell rates
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-   The calculation is made purely direct recombination using the photoionization
-   x-sections.  
-   
-   ?? It is possible that there should be a stimulated emission correction.
-   ?? It is possible that a check to see that nfb should have been made
-                                                                                                   
-                                                                                                   
-  History:
-	98jun	ck      Error in one rate corrected
-	02jun	ksl	This is a completely new version of the routine and
-   			uses detailed balance. (python_43.5)
-	02jul	ksl	Modified so that integ_fb is the number of 
-			recombinations per ne and per ion
-	06may	ksl	57+ -- Modified to use plasma structure since on volume
-    17jan	nsh 81	Added a mode parameter to allow the same code to work for both inner shell and outer shell recomb
-                                                                                                   
- ************************************************************************/
+/**********************************************************/
+/**
+ * @brief      calculates the total number of recombinations
+ * for all of the ions in a cell
+ *
+ * @param [in,out] PlasmaPtr  xplasma   The plasma cell of interest
+ * @param [in] double  t_e   The temperarture of interest
+ * @param [in] int  mode   A switch indicating whether one wants normal radiative recombination (OUTER_SHELL) or
+ * dielectronic recombination (INNER_SHELL) rates to be calculated.
+ * @return   Always returns 0; the results are stored in xplasma->recomb or xplasma->inner_recomb, depending
+ * on the mode
+ *
+ * @details
+ * The routine calculates recombination rates for all the ions in a single cell.  It stores the
+ * recombination rates in the arrays recomb (for normal recombination) or inner_recomb (for dielectronic
+ * recombination)
+ *
+ * ### Notes ###
+ * The calculation is made purely direct recombination using the photoionization
+ * x-sections.
+ *
+ * The units are #/cm**3/s
+ *
+ *
+ **********************************************************/
 
 int
 num_recomb (xplasma, t_e, mode)
@@ -768,9 +691,9 @@ num_recomb (xplasma, t_e, mode)
     {
       if (xplasma->density[i] > DENSITY_PHOT_MIN)
       {
-        if (mode == OUTER_SHELL)          //outer shell
+        if (mode == OUTER_SHELL)        //outer shell
           xplasma->recomb[i] = xplasma->ne * xplasma->density[i + 1] * integ_fb (t_e, 0.0, VERY_BIG, i, FB_RATE, mode);
-        else if (mode == INNER_SHELL)     //innershell
+        else if (mode == INNER_SHELL)   //innershell
           xplasma->inner_recomb[i] = xplasma->ne * xplasma->density[i + 1] * integ_fb (t_e, 0.0, VERY_BIG, i, FB_RATE, mode);
 
       }
@@ -784,37 +707,42 @@ num_recomb (xplasma, t_e, mode)
 }
 
 
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: fb calculates the free_bound emissivity of the plasma at a specific frequency
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
 
-	ion_choice	Either the total emissivity or the emissivity for a specific
-			ion is caculated depending on whether ion_choice=nions, or 
-			a value less than the total number of ions
-    fb_choice determines whether what is returned is the emissivity a specific frecuency 0
-            the emissivity reduced by the ionization potential 1, or the number of photons per
-            unit Hz
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-                                                                                                   
-                                                                                                   
-  History:
-	02jul	ksl	Modified to reflect desire to make fb_xtopbase and fb_verner
-			independent of the wind cell.
-	06may	ksl	57+ -- Switched to plasma structure since no volume
-	06jul	ksl	57h -- Cleaned this routine up a bit, in part to avoid
-			calling fb_verner_partial when it should not be called.
-                                                                                                   
- ************************************************************************/
 
+/**********************************************************/
+/**
+ * @brief      calculates either the free_bound emissivity at a specific frequency or 
+ * depending on inputs, the recombination rate 
+ *
+ * @param [in] PlasmaPtr  xplasma   A plasma cell
+ * @param [in] double  t   The temperature at which to calculate the emisivity
+ * @param [in] double  freq   The frequency at which to calculate the emissivity
+ * @param [in] int  ion_choice   Either the total or the emissivity for a specific ion
+ * @param [in] int  fb_choice   determines whether what is returned is the emissivity a specific frecuency 0
+ * @return     The returns depend on fb_choice
+ *
+ * If ion_choice is a number less than the number of ions then the value returned for that specific
+ * ion.  However if ion_choice is set to the number of ions or greater, the the value returned is 
+ * for the sum of all the ions.  
+ *
+ *
+ * The choices are:
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ * * FB_RATE         Calulate the fb recombination rate
+ *
+ * @details
+ *
+ * ### Notes ###
+ *
+ * This routine calls subroutines that have variablew which are are transmitted
+ * externally, e.g fbt,fbfr, rather than though calls.  The reason for this is some
+ * of the routines are also used as integrands where only one variable can be transimitted
+ * directly.  
+ *
+ * This routine does not have choices associated with inner shell recombination.
+ *
+ **********************************************************/
 
 double
 fb (xplasma, t, freq, ion_choice, fb_choice)
@@ -829,8 +757,7 @@ fb (xplasma, t, freq, ion_choice, fb_choice)
   int nmin, nmax;               // These are the photo-ionization xsections that are used
   int nion, nion_min, nion_max;
 
-
-
+  nion_min = nion_max = 0;
   if (ion_choice < nions)       //Get emissivity for this specific ion_number
   {
     nion_min = ion_choice;
@@ -844,7 +771,7 @@ fb (xplasma, t, freq, ion_choice, fb_choice)
   else
   {
     Error ("fb: This choice %d for ion_choice is not supported\n", ion_choice);
-    exit (0);
+    Exit (0);
   }
 
 
@@ -853,7 +780,6 @@ fb (xplasma, t, freq, ion_choice, fb_choice)
 
   fnu = 0.0;                    /* Initially set the emissivity to zero */
 
-  //Debug("in fb for ion_choice %i\n", ion_choice);
 
   for (nion = nion_min; nion < nion_max; nion++)
   {
@@ -862,19 +788,19 @@ fb (xplasma, t, freq, ion_choice, fb_choice)
       nmin = ion[nion].ntop_first;
       nmax = nmin + ion[nion].ntop;
     }
-    else if (ion[nion].phot_info == 0)  // VFKY 
+    else if (ion[nion].phot_info == 0)  // VFKY
     {
       nmin = ion[nion].nxphot;
       nmax = nmin + 1;
     }
     else
-      nmin = nmax = 0;          // no XS / ionized - don't do anything 
+      nmin = nmax = 0;          // no XS / ionized - don't do anything
 
     //Debug("in fb for ion %i info %i, nmin nmax %i, %i\n", nion, ion[nion].phot_info, nmin, nmax);
 
     x = 0.0;
 
-    /* Loop over relevent Topbase photoionization x-sections.  If 
+    /* Loop over relevent Topbase photoionization x-sections.  If
        an ion does not have Topbase photoionization x-sections then
        ntmin and ntmax are the same and the loop will be skipped. */
 
@@ -889,15 +815,14 @@ fb (xplasma, t, freq, ion_choice, fb_choice)
       }
 
 
-//      fnu += xplasma->density[nion] * x;  //NSH 17Jul - this seems to be an error - we multiply by the ion density below
 
     }
 
 
     /* x is the emissivity from this ion. Add it to the total */
 
-    fnu += xplasma->density[nion+1] * x; //NSH 17Jul - this was a bug - used to be nion, should be nion+1, the ion doing the recombining
-}
+    fnu += xplasma->density[nion + 1] * x;      // nion+1, the ion doing the recombining
+  }
 
   fnu *= xplasma->ne;           // Correct from specific emissivity to the total fb emissivity
 
@@ -906,48 +831,52 @@ fb (xplasma, t, freq, ion_choice, fb_choice)
 }
 
 
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: init_freebound initializes the structure fb_struc as well as some
-associated arrays and variables (found in python.h) that describe
-recombination rates and band-limited luminosities.
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-                                                                                                   
-	t1, t2	The lower and upper limits for which the fb 
-		information is calculated.
-	f1, f2	The frequency interval in which the band-limited
-		fb information is calculated.
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-	The first time the routine is called, both recombination
-	rates and band-limited luminosities are calculated.  On
-	subsequent calls the routine checks to see whether it has
-	already calculated the band-limited freebound emissivities, 
-	and if so returns without redoing the calculation.  However, 
-	if a new frequency interval is provided, the new luminosities
-	are added to the free-bound structure.  To force a 
-	re-initialization nfb must be set to 0.
-                                                                                                   
-                                                                                                   
-  History:
-	02jul	ksl	Coding began
-	0810	ksl	67 - Modified routine so that instead of exiting
-			when there are more than NFB sets of data, it 
-			creates a new set of data and assumes the oldest
-			set can be discarded.  This was done primarily
-			to accommodate some runs of balance.
-                                                                                                   
- ************************************************************************/
 
-int init_freebound_nfb;         /*Indicates the total number of freebound sets that
-                                   could be used */
+/** Indicates the total number of freebound sets that could be used */
+int init_freebound_nfb;
+
+/**********************************************************/
+/**
+ * @brief      initializes the structure fb_struc as well as some
+ * associated arrays and variables (found in python.h) that describe
+ * recombination rates and band-limited luminosities.
+ *
+ * @param [in] double  t1   A lower limit for the temperature
+ * @param [in] double  t2   An upper limit for the temperature
+ * @param [in] double  f1   The lower limit for a frequency interval
+ * @param [in] double  f2   The upper limit for the frequency interval
+ * @return     The routine generally returns 0
+ *
+ * @details
+ * Python typically calculates photons in frequency ranges (in order
+ * to enable stratified sampling).  For this to work, one needs
+ * freebound emissivities and cooling rates corresponding to these
+ * freqency ranges.  Since we retrun to the same frequency ranges every cycle,
+ * Python stores the necessary information in structures.
+ *
+ * This routine is responsible for populating these structures, so
+ * that they can be accessed later via the routine get_fb.
+ *
+ *
+ *
+ * ### Notes ###
+ *
+ * The first time the routine is called, both recombination
+ * rates and band-limited luminosities are calculated.  On
+ * subsequent calls the routine checks to see whether it has
+ * already calculated the band-limited freebound emissivities,
+ * and if so returns without redoing the calculation.  However,
+ * if a new frequency interval is provided, the new luminosities
+ * are added to the free-bound structure.  To force a
+ * re-initialization nfb must be set to 0.
+ *
+ * The routine allows for the possibility that there are more
+ * frequency intervals than place to store data and will recylce
+ * the structure if this occurs (indicating this with several error
+ * messages).  This allows the program to proceed, but if this
+ * happens often then the variable NFB in python.h should be increased.
+ *
+ **********************************************************/
 
 int
 init_freebound (t1, t2, f1, f2)
@@ -965,7 +894,7 @@ init_freebound (t1, t2, f1, f2)
     if (t2 < t1)
     {
       Error ("init_freebound: t2(%g)<t1(%g)\n", t2, t1);
-      exit (0);
+      Exit (0);
     }
 
     ltmin = log10 (t1);
@@ -992,7 +921,7 @@ init_freebound (t1, t2, f1, f2)
   else if (fabs (fb_t[0] - t1) > 10. || fabs (fb_t[NTEMPS - 1] - t2) > 1000.)
   {
     Error ("init_freebound: Cannot initialize to new temps without resetting nfb");
-    exit (0);
+    Exit (0);
 
   }
 
@@ -1057,28 +986,21 @@ on the assumption that the fb information will be reused.
 
 
 
-
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: Return the recombination coefficient 
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
-                                                                                                   
-                                                                                                   
-  History:
-		13sep	nsh	changed call to linterp to reflect new option
-                                                                                                   
- ************************************************************************/
-
+/**********************************************************/
+/**
+ * @brief      Return the recombination coefficient
+ *
+ * @param [in] double  t   The temperature
+ * @param [in] int  nion   The ion of interest
+ * @param [in] int  mode   A switch to choose normal (OUTER_SHELL) or inner shell (INNER_SHELL) recombination
+ * @return     The recombination coefficient
+ *
+ * @details
+ * Uses data from Badnell or another source to get a recombination rate
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 double
 get_nrecomb (t, nion, mode)
@@ -1087,92 +1009,118 @@ get_nrecomb (t, nion, mode)
      int mode;
 {
   int linterp ();
-  double x;
-  if (mode == 1)
+  double x = -99.;
+  if (mode == OUTER_SHELL)
     linterp (t, fb_t, xnrecomb[nion], NTEMPS, &x, 0);   //Interpolate in linear space
-  else if (mode == 2)
+  else if (mode == INNER_SHELL)
     linterp (t, fb_t, xninnerrecomb[nion], NTEMPS, &x, 0);      //Interpolate in linear space
   else
   {
-    Error ("Get_nrecomb - unkonwn mode %i", mode);
-    exit (0);
+    Error ("Get_nrecomb: Unkonwn mode/type %i of recombination coefficient", mode);
+    Exit (0);
   }
   return (x);
 }
 
 
-/* Return the specific emissivity due to recombination emission in an interval */
+
+
+/**********************************************************/
+/**
+ * @brief      Interpolate from a set of stored emissivities
+ *
+ * @param [in] double  t   The temperure of interest
+ * @param [in] int  nion   The ion of interest
+ * @param [in] int  narray   The number of the array calculated for a particular frequency range
+ * @param [in] int  fb_choice   A switch used only in the case of normal recombination
+ * @param [in] int  mode   A switch which indicates whether one is interested 
+ * in normal (OUTER_SHELL) or innershell (INNER_SHELL)  recombination
+ * @return     The program generally returns an emissivity or a cooling rate, 
+ * and the choices are determined by the
+ * combination of fb_choice and mode
+ *
+ * if the mode is set for normal recombiantion, then the possiblities are:
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ *
+ * if the mode is set for inner shell then the cooling rate (effectively FB_FULL) is returned.
+ *
+ *
+ * @details
+ * In an effort to save time, information needed to calculate free-bound 
+ * emissivities and cooling are calculated when
+ * a freqency interval is defined, and this routine is used to retrieve 
+ * these values.  The fb structures are populated by init_freebound
+ *
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 double
 get_fb (t, nion, narray, fb_choice, mode)
      double t;
      int nion;
      int narray;
-	 int fb_choice;
+     int fb_choice;
      int mode;
 {
   int linterp ();
-  double x;
+  double x = -99.;
   if (mode == OUTER_SHELL)
   {
-	  if (fb_choice == FB_REDUCED)
-    linterp (t, fb_t, &freebound[narray].cool[nion][0], NTEMPS, &x, 0);        //Interpolate in linear space
-	  else if (fb_choice == FB_FULL)
-    linterp (t, fb_t, &freebound[narray].lum[nion][0], NTEMPS, &x, 0);        //Interpolate in linear space
-	  else
-	  {
-		  Error ("Get_fb - unexpected mode %i", mode);
-		  exit(0);
-		}
+    if (fb_choice == FB_REDUCED)
+      linterp (t, fb_t, &freebound[narray].cool[nion][0], NTEMPS, &x, 0);       //Interpolate in linear space
+    else if (fb_choice == FB_FULL)
+      linterp (t, fb_t, &freebound[narray].lum[nion][0], NTEMPS, &x, 0);        //Interpolate in linear space
+    else
+    {
+      Error ("Get_fb - unexpected mode %i", mode);
+      Exit (0);
+    }
   }
   else if (mode == INNER_SHELL)
-    linterp (t, fb_t, &freebound[narray].cool_inner[nion][0], NTEMPS, &x, 0);  //Interpolate in linear space
+    linterp (t, fb_t, &freebound[narray].cool_inner[nion][0], NTEMPS, &x, 0);   //Interpolate in linear space
 
   else
   {
     Error ("Get_fb - unkonwn mode %i", mode);
-    exit (0);
+    Exit (0);
   }
   return (x);
 }
 
 
 
-/**************************************************************************
-                    Space Telescope Science Institute
-                                                                                                   
-                                                                                                   
-  Synopsis: xinteg_fb calculates the integrated emissivity of 
-  an ion in the plasma.  
-                                                                                                   
-  Description:
-                                                                                                   
-  Arguments:  
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
 
-  This routine is called by integ_fb.  It is not intended to be called 
-  directly. 
 
-  It's unusual nature is determined by the need to use a modififed 
-  Numerical Recipes routine for integration of fb over a frequency range 
-                                                                                                   
-                                                                                                   
-  History:
-	02jul	ksl	Modified to elimate need to include information about the cell.
-			At this point integ_fb yields answers per electron and per ion.
-			Moved DENSITY_PHOT_MIN test out of integ_fb
-	02jul	ksl	In attempt to store the fb coefficiencts this function
-			renamed.  It actually calculates the emissivities, and integ_fb
-			has become a kind of steering routine that normally, e.g. often
-			reads the freebound arrays.
-    04May   SS      Minor changes to exclude fb from macro atoms (which are treated elsewhere)
-                                                                                                   
- ************************************************************************/
-
+/**********************************************************/
+/**
+ * @brief      calculates the integrated emissivity of
+ *   an ion in the plasma.
+ *
+ * @param [in, out] double  t   The temperature of interest
+ * @param [in, out] double  f1   The minimum frequency
+ * @param [in, out] double  f2   The maximum frequency
+ * @param [in, out] int  nion   The ion of interest
+ * @param [in, out] int  fb_choice   A switch which determined exactly what is returned
+ * @return     The integrated emissivity, depending on the fb_choice.  The possibilites are
+ *
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ * * FB_RATE         Calulate the fb recombinarion rate
+ *
+ * @details
+ *
+ * The routine preforms a numberical integration over the partial emissivities
+ *
+ *
+ * ### Notes ###
+ * This routine is called by integ_fb.  It is not intended to be called
+ * directly, which uses a Numerical Recipes routine to integrate over frequncy.
+ *
+ *
+ **********************************************************/
 
 double
 xinteg_fb (t, f1, f2, nion, fb_choice)
@@ -1186,12 +1134,13 @@ xinteg_fb (t, f1, f2, nion, fb_choice)
   double dnu;                   //NSH 140120 - a parameter to allow one to restrict the integration limits.
   double fthresh, fmax;
   double den_config ();
-  int nmin, nmax;               // These are the limits over which number xsections we will use 
+  int nmin, nmax;               // These are the limits over which number xsections we will use
   double qromb ();
 
 
   dnu = 0.0;                    //Avoid compilation errors.
 
+  nmin = nmax = 0;
   if (-1 < nion && nion < nions)        //Get emissivity for this specific ion_number
   {
     if (ion[nion].phot_info > 0)        // topbase or hybrid
@@ -1199,19 +1148,19 @@ xinteg_fb (t, f1, f2, nion, fb_choice)
       nmin = ion[nion].ntop_first;
       nmax = nmin + ion[nion].ntop;
     }
-    else if (ion[nion].phot_info == 0)  // VFKY 
+    else if (ion[nion].phot_info == 0)  // VFKY
     {
       nmin = ion[nion].nxphot;
       nmax = nmin + 1;
     }
     else
-      // the ion is a fullt ionized ion / doesn't have a cross-section, so return 0
+      // the ion is a fully ionized ion  and doesn't have a cross-section, so return 0
       return (0.0);
   }
   else                          // Get the total emissivity
   {
     Error ("integ_fb: %d is unacceptable value of nion\n", nion);
-    exit (0);
+    Exit (0);
   }
 
   // Put information where it can be used by the integrating function
@@ -1222,8 +1171,8 @@ xinteg_fb (t, f1, f2, nion, fb_choice)
 
   if (f1 < 3e12)
     f1 = 3e12;                  // 10000 Angstroms
-  if (f2 > 3e18)                // 110819 nsh increase upper limits to include  highly ionised ions that we are now seeing in x-ray illuminated nebulas.
-    f2 = 3e18;                  // This is 1 Angstroms  - ksl
+  if (f2 > 3e18)                // Set a maximum value for the maximum frequncy
+    f2 = 3e18;                  // This is 1 Angstroms
   if (f2 < f1)
     return (0.0);               /* Because there is nothing to integrate */
 
@@ -1235,9 +1184,9 @@ xinteg_fb (t, f1, f2, nion, fb_choice)
     // loop over relevent Topbase or VFKY photoionzation x-sections
     fb_xtop = &phot_top[n];
 
-    /* Adding an if statement here so that photoionization that's part of a macro atom is 
+    /* Adding an if statement here so that photoionization that's part of a macro atom is
        not included here (these will be dealt with elsewhere). (SS, Apr04) */
-    if (fb_xtop->macro_info == 0 || geo.macro_simple == 1 || geo.rt_mode == RT_MODE_2LEVEL)  //Macro atom check. (SS)
+    if (fb_xtop->macro_info == 0 || geo.macro_simple == 1 || geo.rt_mode == RT_MODE_2LEVEL)     //Macro atom check. (SS)
     {
       fthresh = fb_xtop->freq[0];
       fmax = fb_xtop->freq[fb_xtop->np - 1];    // Argues that this should be part of structure
@@ -1248,13 +1197,15 @@ xinteg_fb (t, f1, f2, nion, fb_choice)
       // Now calculate the emissivity as long as fmax exceeds xthreshold and there are ions to recombine
       if (fmax > fthresh)
       {
-        //NSH 140120 - this is a test to ensure that the exponential will not go to zero in the integrations 
+        //NSH 140120 - this is a test to ensure that the exponential will not go to zero in the integrations
         dnu = 100.0 * (fbt / H_OVER_K);
         if (fthresh + dnu < fmax)
         {
           fmax = fthresh + dnu;
         }
-        fnu += qromb (fb_topbase_partial, fthresh, fmax, 1.e-4);
+//        fnu += qromb (fb_topbase_partial, fthresh, fmax, 1.e-4);
+        fnu += num_int (fb_topbase_partial2, fthresh, fmax, 1.e-4);
+
       }
     }
   }
@@ -1264,37 +1215,41 @@ xinteg_fb (t, f1, f2, nion, fb_choice)
 }
 
 
-/**************************************************************************
-                   Southampton University
-                                                                                                   
-                                                                                                   
-  Synopsis: xinteg_inner_fb calculates the integrated fb emissivity of inner
-  shell transitions in an ion at a given temperature
-                                                                                                   
-  Description: 
-                                                                                                   
-  Arguments:  
-                                                                                                   
-                                                                                                   
-  Returns:
-                                                                                                   
-  Notes:
 
-  This routine is  virtual copy of xinteg_fb but dones inner shell integrations.
 
-  This routine is called by integ_fb.  It is not intended to be called 
-  directly. 
 
-  It's unusual nature is determined by the need to use a modififed 
-  Numerical Recipes routine for integration of fb over a frequency range 
-                                                                                                   
-                                                                                                   
-                                                                                                   
-  History:
-	16Jan NSH - coded
-                                                                                                   
- ************************************************************************/
-
+/**********************************************************/
+/**
+ * @brief      calculates the integrated fb emissivity of inner
+ *   shell transitions in an ion at a given temperature
+ *
+ * @param [in] double  t   The temperarure of interest
+ * @param [in] double  f1   The minimum frequency
+ * @param [in] double  f2   The maximum frequency
+ * @param [in] int  nion   The ion of interest
+ * @param [in] int  fb_choice   ???
+ * @return     Exactly what the the routine returns is determined by fb_choice,
+ * which is passed as an an external variable to fb_topbase_partial
+ *
+ * The possibilites are
+ *
+ * * FB_FULL         Calculate fb emissivity including energy associated with the threshold
+ * * FB_REDUCED      Calculate the fb emissivity without the threshold energy
+ * * FB_RATE         Calulate the fb recombinarion rate
+ *
+ * @details
+ *
+ *
+ *
+ * ### Notes ###
+ * This routine is  virtual copy of xinteg_fb but considers only inner shells .
+ * The integration that is requied to integrate over frequencies is carried out using
+ * the Numerical Recipes routine qromb.  This is why a number of variables are
+ * passed as external variables, include fb_choice, fmin and fmax.
+ *
+ *
+ *
+ **********************************************************/
 
 double
 xinteg_inner_fb (t, f1, f2, nion, fb_choice)
@@ -1305,10 +1260,9 @@ xinteg_inner_fb (t, f1, f2, nion, fb_choice)
 {
   int n, nn;
   double fnu;
-  double dnu;                   //NSH 140120 - a parameter to allow one to restrict the integration limits.
+  double dnu;                   // a parameter to allow one to restrict the integration limits.
   double fthresh, fmax;
   double den_config ();
-  double qromb ();
 
 
   dnu = 0.0;                    //Avoid compilation errors.
@@ -1318,8 +1272,8 @@ xinteg_inner_fb (t, f1, f2, nion, fb_choice)
 
   if (f1 < 3e12)
     f1 = 3e12;                  // 10000 Angstroms
-  if (f2 > 3e18)                // 110819 nsh increase upper limits to include  highly ionised ions that we are now seeing in x-ray illuminated nebulas.
-    f2 = 3e18;                  // This is 1 Angstroms  - ksl
+  if (f2 > 3e18)                // increase upper limits to include  highly ionised ions that we are now seeing in x-ray illuminated nebulas.
+    f2 = 3e18;                  // This is 1 Angstroms
   if (f2 < f1)
     return (0.0);               /* Because there is nothing to integrate */
 
@@ -1335,12 +1289,12 @@ xinteg_inner_fb (t, f1, f2, nion, fb_choice)
 
 
 
-      // loop over relevent Topbase or VFKY photoionzation x-sections
+      // loop over relevent Topbase or VFKY photoionization x-sections
       fb_xtop = &inner_cross[nn];
 
-      /* Adding an if statement here so that photoionization that's part of a macro atom is 
+      /* Adding an if statement here so that photoionization that's part of a macro atom is
          not included here (these will be dealt with elsewhere). (SS, Apr04) */
-      if (fb_xtop->macro_info == 0 || geo.macro_simple == 1 || geo.rt_mode == RT_MODE_2LEVEL)        //Macro atom check. (SS)
+      if (fb_xtop->macro_info == 0 || geo.macro_simple == 1 || geo.rt_mode == RT_MODE_2LEVEL)   //Macro atom check. (SS)
       {
         fthresh = fb_xtop->freq[0];
         fmax = fb_xtop->freq[fb_xtop->np - 1];  // Argues that this should be part of structure
@@ -1352,13 +1306,13 @@ xinteg_inner_fb (t, f1, f2, nion, fb_choice)
         // Now calculate the emissivity as long as fmax exceeds xthreshold and there are ions to recombine
         if (fmax > fthresh)
         {
-          //NSH 140120 - this is a test to ensure that the exponential will not go to zero in the integrations 
+          //NSH 140120 - this is a test to ensure that the exponential will not go to zero in the integrations
           dnu = 100.0 * (fbt / H_OVER_K);
           if (fthresh + dnu < fmax)
           {
             fmax = fthresh + dnu;
           }
-          fnu += qromb (fb_topbase_partial, fthresh, fmax, 1.e-4);
+          fnu += num_int (fb_topbase_partial2, fthresh, fmax, 1.e-4);
         }
 
       }
@@ -1372,43 +1326,33 @@ xinteg_inner_fb (t, f1, f2, nion, fb_choice)
 
 
 
-/***********************************************************
-                                       Southampton University
-                                                                                                                                      
- Synopsis:
-        total_rr(nion, T)
-                                                                                                                                      
-Arguments:
-        ion - ion for which we want a recombination rate - 
-		this is the upper state, so the ion which is 
-		doing the recombining, there is no rate for
-		H1(ion0) but there is one for H(ion1)
-	temperature - the temperature we want a rate for
-Returns:
-	rate - the total recombination rate for this ion 
-		for this temperature
-                                                                                                                                      
-Description:
-                                                                                                                                      
-        This routine generates a total recombination rate for 
-		a given ion at a given temperature using 
-		badnell or shull type parameters. If these
-		are not presnet, an error is produced but the code
-		soldiers on with a value from the milne relation.
-                                                                                                                                      
-Notes:
-	
-                                                                                                                                      
-History:
-        12jul   nsh     73 -- Began coding
-	24jul	nsh	73 -- Included the shull coefficients in the chianti database
-	14aug	nsh	78b-- renamed - from bad_t_rr since we dont just use badnell data.
-			Also rewritten to use the milne relation to get a value for the 
-			recombination rate in the absence of data. This is all in preparation
-			for the use of this routine to help populate a recombination rate matrix.
-	
-                                                                                                                                      
-**************************************************************/
+
+
+/**********************************************************/
+/**
+ * @brief      get the total rediative recombination rate
+ *
+ * @param [in] int  nion   The ion number of interest
+ * @param [in] double  T   The temperature for which the rate is calculated
+ * @return     The total recombination rate for this ion
+ * 		for this temperature
+ *
+ * @details
+ * Generates a total recombination rate for
+ * a given ion at a given temperature using
+ * data, obtained from sources such as Badnell
+ * or Shull.
+ *
+ * If these are not present, an error is generated, and a
+ * value using the Milne relation is returned.
+ *
+ * ### Notes ###
+ * Recombination rates can be calculated from the Milne relation
+ * but in most cases this does not give one the most accurate
+ * recombination
+ * rate because one does not have all of the relevant levels.
+ *
+ **********************************************************/
 
 double
 total_rrate (nion, T)
@@ -1457,14 +1401,16 @@ total_rrate (nion, T)
     else
     {
       Error ("total_rrate: unknown parameter type for ion %i\n", nion);
-      exit (0);                 /* NSH This is a serious problem! */
+      Exit (0);
     }
   }
-  else                          /*NSH 140812 - We dont have coefficients - in this case we can use xinteg_fb with mode 2 to use the milne relation to obtain a value for this - it is worth throwing an error though, since there rreally should be data for all ions. xinteg_fb
-                                   is called with the lower ion in the pair, since it uses the photionization cross sectiuon of the lower ion */
+  else                          /* We dont have coefficients, so use the Milne relation. Note
+                                   that the Milne relation uses the lower ion of a pair, and so nion-1
+                                   is correct
+                                 */
   {
-    Error ("total_rrate: No T_RR parameters for ion %i - using milne relation\n", nion);
-    rate = xinteg_fb (T, 3e12, 3e18, nion - 1, 2);
+    Error ("total_rrate: No T_RR parameters for ion %i - using Milne relation\n", nion);
+    rate = xinteg_fb (T, 3e12, 3e18, nion - 1, FB_RATE);
   }
 
 
@@ -1473,47 +1419,33 @@ total_rrate (nion, T)
 }
 
 
-/***********************************************************
-                                       Southampton University
-                                                                                                                                      
- Synopsis:
-        gs_rr(nion,T)
-                                                                                                                                      
-Arguments:
-        ion - ion for which we want a recombination rate - 
-		this is the upper state, so the ion which is 
-		doing the recombining, there is no rate for
-		H1(ion0) but there is one for H(ion1)
-	temperature - the temperature we want a rate for
-Returns:
-	rate - the resolved recombination rate for the ground
-		state of this ion recombining into the GS of
-		the lower ion.
-		for this temperature
-                                                                                                                                      
-Description:
-                                                                                                                                      
-        This routine generates a recombination rate to the ground state for 
-		a given ion at a given temperature using 
-		badnell type parameters. If these parameters are not
-		available for the given ion - the milne relation is
-		used.   
-                                                                                                                                      
-Notes:
-	
-                                                                                                                                      
-History:
-        12jul   nsh     73 -- Began coding
-  	14mar	nsh	77a-- Interpolaion now carried out in log space
-	14aug	nsh	78b-- Renamed to gs_rr from bad_gs_rr and 
-			rewritten to use the milne relation if badnell
-			type paramerters are not available. This allows
-			this code to be used to produce recombination
-			rate coefficients for the matrix ionization scheme.
 
-	
-                                                                                                                                      
-**************************************************************/
+/**********************************************************/
+/**
+ * @brief      get the recombination rate to the ground state for an
+ * ion at a particular temperature
+ *
+ * @param [in] int  nion   The ion of interest
+ * @param [in] double  T   A temperature
+ * @return     the rate
+ *
+ * @details
+ * This routine generates a recombination rate to the ground state for
+ * a given ion at a given temperature using data from Badnell or other
+ * sources (with similar data formats).
+ *
+ * If these recombination rates a are not
+ * available for the given ion the Milne relation is
+ * used.
+ *
+ * ### Notes ###
+ * nion is the ion that is recombining to a less ionizaed
+ * state.  There is thus no rate for HI or He I, etc.
+ *
+ * The routine is used to produce recombination rate coefficients
+ * for the matrix ionization
+ *
+ **********************************************************/
 
 double
 gs_rrate (nion, T)
@@ -1530,18 +1462,11 @@ gs_rrate (nion, T)
   imin = imax = 0;              /* NSH 130605 to remove o3 compile error */
 
 
-  //  if (ion[nion].bad_gs_rr_t_flag != 1 && ion[nion].bad_gs_rr_r_flag != 1)
-  //    {
-  //      Error ("bad_gs_rr: Insufficient GS_RR parameters for ion %i\n", nion);
-  //      return (0);
-  //    }
 
   if (ion[nion].bad_gs_rr_t_flag == 1 && ion[nion].bad_gs_rr_r_flag == 1)       //We have tabulated gs data
 
-    //NSH force code to always use milne for a test REMOVE ME!!!
-    //if (ion[nion].bad_gs_rr_t_flag == 100 && ion[nion].bad_gs_rr_r_flag == 100)       //We have tabulated gs data
   {
-	  for (i = 0; i < BAD_GS_RR_PARAMS; i++)
+    for (i = 0; i < BAD_GS_RR_PARAMS; i++)
     {
       rates[i] = bad_gs_rr[ion[nion].nxbadgsrr].rates[i];
       temps[i] = bad_gs_rr[ion[nion].nxbadgsrr].temps[i];
@@ -1575,15 +1500,15 @@ gs_rrate (nion, T)
           imax = i + 1;
         }
       }
-      /* NSH 140313 - changed the following lines to interpolate in log space */
     }
+    /* interpolate in log space */
     drdt = (log10 (rates[imax]) - log10 (rates[imin])) / (log10 (temps[imax]) - log10 (temps[imin]));
     dt = (log10 (T) - log10 (temps[imin]));
     rate = pow (10, (log10 (rates[imin]) + drdt * dt));
   }
 
-  /* we will need to use the milne relation - 
-     NB - this is different from using xinteg_fb because 
+  /* Use the Milne relation -
+     NB - this is different from using xinteg_fb because
      that routine does recombination to all excited levels (at least for topbase ions).
    */
   else
@@ -1598,7 +1523,7 @@ gs_rrate (nion, T)
       ntmin = ion[nion - 1].ntop_ground;
       fb_xtop = &phot_top[ntmin];
     }
-    else if (ion[nion - 1].phot_info == 0)      //vfky 
+    else if (ion[nion - 1].phot_info == 0)      //vfky
     {
       fb_xtop = &phot_top[ion[nion - 1].nxphot];
     }
@@ -1612,7 +1537,8 @@ gs_rrate (nion, T)
       fmax = fthresh + dnu;
     }
 
-    rate = qromb (fb_topbase_partial, fthresh, fmax, 1e-5);
+    rate = num_int (fb_topbase_partial2, fthresh, fmax, 1e-5);
+
   }
 
   return (rate);
@@ -1620,10 +1546,29 @@ gs_rrate (nion, T)
 
 
 
-/* This routine takes an input array of doubles and sorts it into
- * numberical order.  It then eliminates duplicates.  
- * The input array is not destroyed
- */
+
+
+/**********************************************************/
+/**
+ * @brief      sort an array into numerical order elimination duplicates
+ *
+ * @param [in] double *  array_in   The input array
+ * @param [out] double *  array_out   The output array
+ * @param [in] int  npts   The number of points in the input array
+ * @return     The number of valid element in the output array
+ *
+ * @details
+ * The routine uses the GSL routine qsort to sort the array in place,
+ * and then copies unique elements of the sorted array into the output
+ * array.
+ *
+ * ### Notes ###
+ *
+ * The routine is used in the creation of cdfs, which need arrays
+ * which are sorted into numerical order, and for which one really
+ * does not wish duplicated values.
+ *
+ **********************************************************/
 
 int
 sort_and_compress (array_in, array_out, npts)
@@ -1636,43 +1581,183 @@ sort_and_compress (array_in, array_out, npts)
 
   values = calloc (sizeof (double), npts);
   for (n = 0; n < npts; n++)
-    {
-      values[n] = array_in[n];
-    }
+  {
+    values[n] = array_in[n];
+  }
 
   /* Sort the array in place */
   qsort (values, npts, sizeof (double), compare_doubles);
-  
 
-  array_out[0]=values[0]; //Copy the first jump into the output array  
-  
+
+  array_out[0] = values[0];     //Copy the first jump into the output array
+
   nfinal = 1;
-  for (n = 1; n < npts; n++) //Loop over the remaining jumps in the array
+  for (n = 1; n < npts; n++)    //Loop over the remaining jumps in the array
+  {
+    if (values[n] > array_out[nfinal - 1])      //In the next point in the array is larger than the last one (i.e. not equal)
     {
-      if (values[n] > array_out[nfinal - 1])  //In the next point in the array is larger than the last one (i.e. not equal)
-	{
-	  array_out[nfinal] = values[n]; //Put the next point into the array
-	  nfinal += 1;  //Increment the size of the array
-	}
+      array_out[nfinal] = values[n];    //Put the next point into the array
+      nfinal += 1;              //Increment the size of the array
     }
-	
+  }
+
 
 
   return (nfinal);
 }
 
-/* This routine just compares two double precision numbers and
+
+
+/**********************************************************/
+/**
+ * @brief      A routine used by qsort in sort_and_compress
+ *
+ * @param [in] const void *  a   A double precision number
+ * @param [in] const void *  b   A second double precision nubmer
+ * @return     1 if a is greater than b, 0 otherwise
+ *
+ * @details
+ * This routine just compares two double precision numbers and
  * returns 1 if a is greate than b, and 0 otherwise.  It is
- * used by qsort
- */
+ * needed by qsort which sorts a double precision array into
+ * numberical order.
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 int
 compare_doubles (const void *a, const void *b)
 {
-  if (*(double*)a > *(double*)b)
+  if (*(double *) a > *(double *) b)
     return 1;
-  else if (*(double*)a < *(double*)b)
+  else if (*(double *) a < *(double *) b)
     return -1;
   else
     return 0;
+}
+
+
+
+/**********************************************************/
+/** 
+ * @brief selects the frequency of bf macro atom emission
+ * 
+ * 
+ * @param [in]     WindPtr w   the ptr to the structure defining the wind
+ * @param [in]     int nconf   the index into phot_top that identifies the continuum we wish to sample
+ * @return freq    double freq the frequency of the packet to be emitted
+ *
+ * a scaled down version of one_fb for use with macro atom implementation. Objective is to select the 
+ * emission frequency of a bound free photon that is to be generated by a specific continuum process
+ * Prior to this routine, the macro atom routines always did this using an analytic hydrogenic approximation.
+ * (SS/JM 1Aug2018)
+ * 
+ *
+ * ###Notes###
+***********************************************************/
+double
+matom_select_bf_freq (WindPtr one, int nconf)
+{
+  double f1, f2;
+  double dfreq, freq;
+  double te;
+  PlasmaPtr xplasma;
+  MatomPhotStorePtr matomxphot;
+
+  int n;
+
+  fbfr = FB_FULL;               //set external variable to sample the full emissivity of this process
+  fb_xtop = &phot_top[nconf];   //set external pointer to the right bf process
+
+  xplasma = &plasmamain[one->nplasma];
+  te = xplasma->t_e;            //electron temperature in cell
+  fbt = te;                     //set external temperature to the right value
+
+  //If hydrogenic ion use analytic expression
+  if (ion[phot_top[nconf].nion].istate == ion[phot_top[nconf].nion].z)
+  {
+    return (phot_top[nconf].freq[0] - (log (1. - random_number (0.0, 1.0)) * te / H_OVER_K));
+  }
+
+
+
+//Check to see if we have some stored ones to use from previous pass
+  matomxphot = &matomphotstoremain[one->nplasma];
+  if (matomxphot->n < NSTORE && matomxphot->nconf == nconf && matomxphot->t == te)
+  {
+    freq = matomxphot->freq[matomxphot->n];
+    (matomxphot->n)++;
+    return (freq);
+  }
+
+
+  //make a new cdf and sample
+  f1 = phot_top[nconf].freq[0]; //threshold frequency = minimum frequency for emission
+  f2 = phot_top[nconf].freq[phot_top[nconf].np - 1];    //last frequency in list
+
+  if ((H_OVER_K * (f2 - f1) / fbt) > ALPHA_MATOM_NUMAX_LIMIT)
+  {
+    //flast is currently very far into the exponential tail: so reduce flast to limit value of h nu / k T.
+    f2 = f1 + fbt * ALPHA_MATOM_NUMAX_LIMIT / H_OVER_K;
+  }
+
+
+
+  dfreq = (f2 - f1) / (MATOM_BF_PDF - 1);       //This is the frequency spacing for the equally spaced elements
+
+  for (n = 0; n < MATOM_BF_PDF / 100; n++)      //We keep going until n=ARRAY_PDF-1, which will give the maximum required frequency
+  {
+    freq = f1 + dfreq * n;      //The frequency of the array element we would make in the normal run of things
+    fb_x[n] = freq;             //Set the next array element frequency
+    fb_y[n] = fb_topbase_partial (freq);        //should return proportional to the total emissivity from this SINGLE bf. Note we don't need to multiply by n_e or n_ion since we only want a CDF for one process: so these factors will scale out
+  }
+
+
+  if (MATOM_BF_PDF > NCDF)
+  {
+    Error ("matom_select_bf_freq: Overflow of working array\n");
+    Exit (0);
+  }
+
+
+  /* At this point, the variable nnn stores the number of points */
+
+
+  if (cdf_gen_from_array (&cdf_fb, fb_x, fb_y, ARRAY_PDF / 100, f1, f2) != 0)
+  {
+    Error ("matom_select_bf_freq after cdf_gen_from_array: f1 %g f2 %g te %g \n", f1, f2, xplasma->t_e);
+    Error ("Giving up\n");
+    Exit (0);
+  }
+
+
+/* OK, generate photons */
+
+/* First generate the photon we need */
+  freq = cdf_get_rand (&cdf_fb);
+  if (freq < f1 || freq > f2)
+  {
+    Error ("matom_select_bf_freq:  freq %e  freqmin %e freqmax %e out of range\n", freq, f1, f2);
+  }
+
+
+/* Now create and store for future use a set of additonal photons */
+
+  for (n = 0; n < NSTORE; n++)
+  {
+    matomxphot->freq[n] = cdf_get_rand (&cdf_fb);
+    if (matomxphot->freq[n] < f1 || matomxphot->freq[n] > f2)
+    {
+      Error ("matom_select_bf_freq:  freq %e  freqmin %e freqmax %e out of range\n", matomxphot->freq[n], f1, f2);
+    }
+
+  }
+  matomxphot->n = 0;
+  matomxphot->t = te;
+  matomxphot->nconf = nconf;
+
+  return (freq);
+
+
 }

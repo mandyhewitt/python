@@ -1,55 +1,57 @@
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
- Synopsis:
-	windsave2table writes key variables in a wind save file to an astropy table    
-		as calculated by python.  This is the main routine.
-
-Arguments:		
-
-	py_wind  windsave_root
-
-
-
-Returns:
- 
-Description:	
-	
-
-	
-Notes:
-
-	The main difficulty with this program is that one needs to be consistent
-	regarding the size of the arrays that one stuffs the variables into.  
-	As now written, if one wants to access a variable in wmain, one needs to
-	include and offset, generally called nstart.
-
-
-History:
-	150428	ksl	Adapted from routines in py_wind.c
-	160216	ksl	Resolved issues with multiple domains
-
-**************************************************************/
+/***********************************************************/
+/** @file  windsave2table_sub.c
+ * @author ksl
+ * @date   April, 2018
+ *
+ * @brief  Subroutines for windsave2table
+ *
+ * These are various routines used by windsave2table which reads
+ * a windsave file and writes various variables of that windsave
+ * file to ascii files which can be read with astropy.io ascii
+ * as tables.
+ *
+ * Unlike py_wind, windsave2table is hardwired and to change what
+ * is written one must actually modify the routines themselves.
+ ***********************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 #include "atomic.h"
 #include "python.h"
 
 
+/**********************************************************/
+/**
+ * @brief      The main routine associated with windsave2table, this routine calls
+ * various other routines which write individual files
+ *
+ * @param [in] char *  root   The rootname of the windsave file
+ * @return     Always returns 0
+ *
+ * @details
+ *
+ *
+ *
+ * ### Notes ###
+ *
+ * The routine cycles through the various domains and calles subroutines
+ * that write the individual files for each domain.
+ *
+ *
+ *
+ **********************************************************/
 
 int
-do_windsave2table(root)
-    char *root;
+do_windsave2table (root, ion_switch)
+     char *root;
+     int ion_switch;
 {
-    int ochoice;
   int ndom;
-  ochoice = 1;
   char rootname[LINELENGTH];
-  int create_master_table(), create_heat_table(), create_ion_table();
 
 
   for (ndom = 0; ndom < geo.ndomain; ndom++)
@@ -59,11 +61,15 @@ do_windsave2table(root)
 
     create_master_table (ndom, rootname);
     create_heat_table (ndom, rootname);
-    create_ion_table (ndom, rootname, 6);
-    create_ion_table (ndom, rootname, 7);
-    create_ion_table (ndom, rootname, 8);
-    create_ion_table (ndom, rootname, 14);
-    create_ion_table (ndom, rootname, 26);
+    create_ion_table (ndom, rootname, 1, ion_switch);
+    create_ion_table (ndom, rootname, 2, ion_switch);
+    create_ion_table (ndom, rootname, 6, ion_switch);
+    create_ion_table (ndom, rootname, 7, ion_switch);
+    create_ion_table (ndom, rootname, 8, ion_switch);
+    create_ion_table (ndom, rootname, 11, ion_switch);
+    create_ion_table (ndom, rootname, 14, ion_switch);
+    create_ion_table (ndom, rootname, 26, ion_switch);
+    create_convergence_table (ndom, rootname);
   }
   return (0);
 }
@@ -71,46 +77,42 @@ do_windsave2table(root)
 
 
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
-Synopsis:
-
-	create_master_table writes a selected variables of in the windsaave
-	file to an astropy table
-
-	It is intended to be easily modifible.
-
-Arguments:		
-
-	rootname of the file that will be written out
 
 
-Returns:
- 
-Description:	
-
-	The routine reads data directly from wmain, and then calls 
-	get_one or get_ion multiple times to read info from the Plasma
-	structure.  
-	
-	It then writes the data to an  astropy file
-Notes:
-
-	To add a variable one just needs to define the column_name
-	and send the appropriate call to either get_one or get_ion.
-
-	There is some duplicated code in the routine that pertains
-	to whether one is dealing with a spherecial or a 2d coordinate
-	system.  It should be possible to delete this
-
-
-
-History:
-	150428	ksl	Adpated from routines in py_wind.c
-	150501	ksl	Cleaned this routine up, and added a few more variables
-
-**************************************************************/
+/**********************************************************/
+/**
+ * @brief      writes specific  variables of a windsaave
+ * which are intended to be of general interest to
+ * file which has the format of an astropy table
+ *
+ * 	It is intended to be easily modifible.
+ *
+ * @param [in] int  ndom   A domain number
+ * @param [in] char  rootname   The rootname of the master file
+ * @return   Always returns 0
+ *
+ * @details
+ *
+ * The master table is contains basic information for each
+ * cell in the wind, such as the electron density, the density,
+ * the ionization parameter, and the radiative and electron temperature
+ *
+ * The routine takes data directly from wmain, and then calls
+ * get_one or get_ion multiple times to fet info from the Plasma
+ * structure.
+ *
+ * It then writes the data to an ascii file which can be read as
+ * an  astropy table
+ *
+ * ### Notes ###
+ * To add a variable one just needs to define the column_name
+ * and send the appropriate call to either get_one or get_ion.
+ *
+ * There is some duplicated code in the routine that pertains
+ * to whether one is dealing with a spherecial or a 2d coordinate
+ * system.  It should be possible to delete this
+ *
+ **********************************************************/
 
 int
 create_master_table (ndom, rootname)
@@ -118,17 +120,15 @@ create_master_table (ndom, rootname)
      char rootname[];
 {
   char filename[132];
-  double *get_one ();
-  double *get_ion ();
   double *c[50], *converge;
   char column_name[50][20];
   char one_line[1024], start[132], one_value[20];
 
 
   int i, ii, jj;
-  int nstart, nstop, ndim2;
+  int nstart, ndim2;
   int n, ncols;
-  FILE *fopen (), *fptr;
+  FILE *fptr;
 
   strcpy (filename, rootname);
   strcat (filename, ".master.txt");
@@ -201,7 +201,6 @@ create_master_table (ndom, rootname)
 
 
   nstart = zdom[ndom].nstart;
-  nstop = zdom[ndom].nstop;
   ndim2 = zdom[ndom].ndim2;
 
 
@@ -249,7 +248,8 @@ create_master_table (ndom, rootname)
 
     /* First assemble the header line */
 
-    sprintf (start, "%8s %8s %8s %8s %4s %4s %6s %8s %8s %8s %8s ", "x", "z", "xcen", "zcen","i", "j", "inwind", "converge", "v_x", "v_y", "v_z");
+    sprintf (start, "%8s %8s %8s %8s %4s %4s %6s %8s %8s %8s %8s ", "x", "z", "xcen", "zcen", "i", "j", "inwind", "converge", "v_x", "v_y",
+             "v_z");
     strcpy (one_line, start);
     n = 0;
     while (n < ncols)
@@ -269,7 +269,7 @@ create_master_table (ndom, rootname)
       wind_n_to_ij (ndom, nstart + i, &ii, &jj);
       sprintf (start,
                "%8.2e %8.2e %8.2e %8.2e %4d %4d %6d %8.0f %8.2e %8.2e %8.2e ",
-               wmain[nstart+i].x[0], wmain[nstart+i].x[2],wmain[nstart + i].xcen[0], wmain[nstart + i].xcen[2], ii,
+               wmain[nstart + i].x[0], wmain[nstart + i].x[2], wmain[nstart + i].xcen[0], wmain[nstart + i].xcen[2], ii,
                jj, wmain[nstart + i].inwind, converge[i], wmain[nstart + i].v[0], wmain[nstart + i].v[1], wmain[nstart + i].v[2]);
       strcpy (one_line, start);
       n = 0;
@@ -282,13 +282,14 @@ create_master_table (ndom, rootname)
       fprintf (fptr, "%s\n", one_line);
     }
   }
-  
-  else if (zdom[ndom].coord_type == RTHETA )
+
+  else if (zdom[ndom].coord_type == RTHETA)
   {
 
     /* First assemble the header line */
 
-    sprintf (start, "%8s %8s %8s %9s %8s %8s %8s %8s %4s %4s %6s %8s %8s %8s %8s ", "r","theta", "r_cen","theta_cen","x", "z", "xcen", "zcen","i", "j", "inwind", "converge", "v_x", "v_y", "v_z");
+    sprintf (start, "%8s %8s %8s %9s %8s %8s %8s %8s %4s %4s %6s %8s %8s %8s %8s ", "r", "theta", "r_cen", "theta_cen", "x", "z", "xcen",
+             "zcen", "i", "j", "inwind", "converge", "v_x", "v_y", "v_z");
     strcpy (one_line, start);
     n = 0;
     while (n < ncols)
@@ -308,8 +309,8 @@ create_master_table (ndom, rootname)
       wind_n_to_ij (ndom, nstart + i, &ii, &jj);
       sprintf (start,
                "%8.2e %8.2e %8.2e %9.2e %8.2e %8.2e %8.2e %8.2e %4d %4d %6d %8.0f %8.2e %8.2e %8.2e ",
-               wmain[nstart+i].r, wmain[nstart+i].theta,wmain[nstart + i].rcen, wmain[nstart + i].thetacen, 
-               wmain[nstart+i].x[0], wmain[nstart+i].x[2],wmain[nstart + i].xcen[0], wmain[nstart + i].xcen[2], ii,
+               wmain[nstart + i].r, wmain[nstart + i].theta, wmain[nstart + i].rcen, wmain[nstart + i].thetacen,
+               wmain[nstart + i].x[0], wmain[nstart + i].x[2], wmain[nstart + i].xcen[0], wmain[nstart + i].xcen[2], ii,
                jj, wmain[nstart + i].inwind, converge[i], wmain[nstart + i].v[0], wmain[nstart + i].v[1], wmain[nstart + i].v[2]);
       strcpy (one_line, start);
       n = 0;
@@ -323,10 +324,11 @@ create_master_table (ndom, rootname)
     }
   }
 
-  else {
-      printf("Error: Cannot print out files for coordinate system type %d\n",zdom[ndom].coord_type);
+  else
+  {
+    printf ("Error: Cannot print out files for coordinate system type %d\n", zdom[ndom].coord_type);
   }
-  
+
 
   return (0);
 }
@@ -334,46 +336,25 @@ create_master_table (ndom, rootname)
 
 
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
-Synopsis:
-
-	create_heat_table writes a selected variables of in the windsave
-	file to an astropy table
-
-	It is intended to be easily modifible.
-
-Arguments:		
-
-	rootname of the file that will be written out
-
-
-Returns:
- 
-Description:	
-
-	The routine reads data directly from wmain, and then calls 
-	get_one or get_ion multiple times to read info from the Plasma
-	structure.  
-	
-	It then writes the data to an  astropy file
-Notes:
-
-	To add a variable one just needs to define the column_name
-	and send the appropriate call to either get_one or get_ion.
-
-	There is some duplicated code in the routine that pertains
-	to whether one is dealing with a spherecial or a 2d coordinate
-	system.  It should be possible to delete this
-
-
-
-History:
-	150428	ksl	Adpated from routines in py_wind.c
-	150501	ksl	Cleaned this routine up, and added a few more variables
-
-**************************************************************/
+/**********************************************************/
+/**
+ * @brief      writes a selected variables related to heating and cooling
+ * processes to an ascii file which can be read as an astropy table
+ *
+ *
+ * @param [in] int  ndom   The domain of interest
+ * @param [in, out] char  rootname[]   The rootname of the windsave file
+ * @return     Always returns 0
+ *
+ * @details
+ *
+ * ### Notes ###
+ *
+ * To add a variable one just needs to define the column_name
+ * and send the appropriate call to either get_one or get_ion.
+ *
+ *
+ **********************************************************/
 
 int
 create_heat_table (ndom, rootname)
@@ -381,17 +362,15 @@ create_heat_table (ndom, rootname)
      char rootname[];
 {
   char filename[132];
-  double *get_one ();
-  double *get_ion ();
   double *c[50], *converge;
   char column_name[50][20];
   char one_line[1024], start[132], one_value[20];
 
 
   int i, ii, jj;
-  int nstart, nstop, ndim2;
+  int nstart, ndim2;
   int n, ncols;
-  FILE *fopen (), *fptr;
+  FILE *fptr;
 
   strcpy (filename, rootname);
   strcat (filename, ".heat.txt");
@@ -456,17 +435,28 @@ create_heat_table (ndom, rootname)
   c[17] = get_one (ndom, "cool_rr");
   strcpy (column_name[17], "cool_rr");
 
+  c[18] = get_one (ndom, "cool_adiab");
+  strcpy (column_name[18], "cool_adiab");
+
+  c[19] = get_one (ndom, "heat_shock");
+  strcpy (column_name[19], "heat_shock");
+
+  c[20] = get_one (ndom, "heat_lines_macro");
+  strcpy (column_name[20], "heat_lines_macro");
+
+  c[21] = get_one (ndom, "heat_photo_macro");
+  strcpy (column_name[21], "heat_photo_macro");
+
   /* This should be the maxium number above +1 */
-  ncols = 18;
+  ncols = 22;
 
 
   converge = get_one (ndom, "converge");
 
-  /* At this point oll of the data has been collected */
+  /* At this point all of the data has been collected */
 
 
   nstart = zdom[ndom].nstart;
-  nstop = zdom[ndom].nstop;
   ndim2 = zdom[ndom].ndim2;
 
 
@@ -554,56 +544,235 @@ create_heat_table (ndom, rootname)
 
 
 
-/***********************************************************
-                                       Space Telescope Science Institute
+/**********************************************************/
+/**
+ * @brief      writes a selected variables related to issues about
+ * convergence to an ascii file which can be read as an astropy table
+ *
+ *
+ * @param [in] int  ndom   The domain of interest
+ * @param [in, out] char  rootname[]   The rootname of the windsave file
+ * @return     Always returns 0
+ *
+ * @details
+ *
+ * ### Notes ###
+ *
+ * To add a variable one just needs to define the column_name
+ * and send the appropriate call to either get_one or get_ion.
+ *
+ *
+ **********************************************************/
 
- Synopsis:
-
- create_ion_table makes an astropy table containing the relative abundances
- of a given element as a function of the position in the grid
-
-Arguments:		
-
-	ndom		The domain number
-	rootname	rootname for the output table
-	iz		element
-
-
-
-Returns:
-
-	0 on completion
- 
-Description:	
-	
-	
-Notes:
-
-
-
-History:
-	150428	ksl	Adpated from routines in py_wind.c
-
-**************************************************************/
 int
-create_ion_table (ndom, rootname, iz)
+create_convergence_table (ndom, rootname)
      int ndom;
      char rootname[];
-     int iz;                    // Where z is the element 
 {
   char filename[132];
-  double *get_one ();
-  double *get_ion ();
+  double *c[50], *converge;
+  char column_name[50][20];
+  char one_line[1024], start[132], one_value[20];
+
+
+  int i, ii, jj;
+  int nstart, ndim2;
+  int n, ncols;
+  FILE *fptr;
+
+  strcpy (filename, rootname);
+  strcat (filename, ".converge.txt");
+
+
+  fptr = fopen (filename, "w");
+
+  /* Get the variables that one needs */
+
+  c[0] = get_one (ndom, "vol");
+  strcpy (column_name[0], "vol");
+
+  c[1] = get_one (ndom, "rho");
+  strcpy (column_name[1], "rho");
+
+  c[2] = get_one (ndom, "ne");
+  strcpy (column_name[2], "ne");
+
+  c[3] = get_one (ndom, "t_e");
+  strcpy (column_name[3], "t_e");
+
+  c[4] = get_one (ndom, "t_e_old");
+  strcpy (column_name[4], "t_e_old");
+
+  c[5] = get_one (ndom, "dt_e");
+  strcpy (column_name[5], "dt_e");
+
+  c[6] = get_one (ndom, "dt_e_old");
+  strcpy (column_name[6], "dt_e_old");
+
+  c[7] = get_one (ndom, "t_r");
+  strcpy (column_name[7], "t_r");
+
+  c[8] = get_one (ndom, "t_r_old");
+  strcpy (column_name[8], "t_r_old");
+
+  c[9] = get_one (ndom, "w");
+  strcpy (column_name[9], "w");
+
+  c[10] = get_one (ndom, "heat_tot");
+  strcpy (column_name[10], "heat_tot");
+
+  c[11] = get_one (ndom, "heat_tot_old");
+  strcpy (column_name[11], "heat_tot_old");
+
+  c[12] = get_one (ndom, "cool_tot");
+  strcpy (column_name[12], "cool_tot");
+
+  c[13] = get_one (ndom, "ntot");
+  strcpy (column_name[13], "ntot");
+
+  c[14] = get_one (ndom, "ip");
+  strcpy (column_name[14], "ip");
+
+  c[15] = get_one (ndom, "nioniz");
+  strcpy (column_name[15], "nioniz");
+
+  c[16] = get_one (ndom, "gain");
+  strcpy (column_name[16], "gain");
+
+  /* This should be the maxium number above +1 */
+  ncols = 17;
+
+
+  converge = get_one (ndom, "converge");
+
+  /* At this point all of the data has been collected */
+
+
+  nstart = zdom[ndom].nstart;
+  ndim2 = zdom[ndom].ndim2;
+
+
+  if (zdom[ndom].coord_type == SPHERICAL)
+  {
+
+
+    /* First assemble the header line
+     */
+
+    sprintf (start, "%9s %4s %6s %6s %8s %8s %8s ", "r", "i", "inwind", "converge", "v_x", "v_y", "v_z");
+    strcpy (one_line, start);
+    n = 0;
+    while (n < ncols)
+    {
+      sprintf (one_value, "%9s ", column_name[n]);
+      strcat (one_line, one_value);
+
+      n++;
+    }
+    fprintf (fptr, "%s\n", one_line);
+
+
+    /* Now assemble the lines of the table */
+
+    for (i = 0; i < ndim2; i++)
+    {
+      // This line is different from the two d case
+      sprintf (start, "%9.3e %4d %6d %8.0f %8.2e %8.2e %8.2e ",
+               wmain[nstart + i].r, i, wmain[nstart + i].inwind,
+               converge[i], wmain[nstart + i].v[0], wmain[nstart + i].v[1], wmain[nstart + i].v[2]);
+      strcpy (one_line, start);
+      n = 0;
+      while (n < ncols)
+      {
+        sprintf (one_value, "%9.2e ", c[n][i]);
+        strcat (one_line, one_value);
+        n++;
+      }
+      fprintf (fptr, "%s\n", one_line);
+    }
+  }
+  else
+  {
+
+    /* First assemble the header line */
+
+    sprintf (start, "%8s %8s %4s %4s %6s %8s %8s %8s %8s ", "x", "z", "i", "j", "inwind", "converge", "v_x", "v_y", "v_z");
+    strcpy (one_line, start);
+    n = 0;
+    while (n < ncols)
+    {
+      sprintf (one_value, "%9s ", column_name[n]);
+      strcat (one_line, one_value);
+
+      n++;
+    }
+    fprintf (fptr, "%s\n", one_line);
+
+
+    /* Now assemble the lines of the table */
+
+    for (i = 0; i < ndim2; i++)
+    {
+      wind_n_to_ij (ndom, nstart + i, &ii, &jj);
+      sprintf (start,
+               "%8.2e %8.2e %4d %4d %6d %8.0f %8.2e %8.2e %8.2e ",
+               wmain[nstart + i].xcen[0], wmain[nstart + i].xcen[2], ii,
+               jj, wmain[nstart + i].inwind, converge[i], wmain[nstart + i].v[0], wmain[nstart + i].v[1], wmain[nstart + i].v[2]);
+      strcpy (one_line, start);
+      n = 0;
+      while (n < ncols)
+      {
+        sprintf (one_value, "%9.2e ", c[n][i]);
+        strcat (one_line, one_value);
+        n++;
+      }
+      fprintf (fptr, "%s\n", one_line);
+    }
+  }
+
+  return (0);
+}
+
+
+
+
+/**********************************************************/
+/**
+ * @brief      makes an astropy table containing the relative abundances
+ *  of a given element as a function of the position in the grid
+ *
+ * @param [in] int  ndom   The domain number
+ * @param [in] char  rootname[]   The rootname of the windsave file
+ * @param [in] int  iz   atomic number of the element
+ * @return     0 on completion
+ *
+ * @details
+ *
+ * ### Notes ###
+ *
+ * The routine calls get_ion_density mulitiple times, once for
+ * each ion of an atom
+ *
+ **********************************************************/
+
+int
+create_ion_table (ndom, rootname, iz, ion_switch)
+     int ndom;
+     char rootname[];
+     int iz;                    // Where z is the element
+     int ion_switch;            // Determines what is actually printed out
+{
+  char filename[132];
   double *c[50];
   int first_ion, number_ions;
   char element_name[20];
   int istate[50];
   char one_line[1024], start[132], one_value[20];
-  int nstart, nstop, ndim2;
+  int nstart, ndim2;
 
 
   int i, ii, jj, n;
-  FILE *fopen (), *fptr;
+  FILE *fptr;
 
 /* First we actually need to determine what ions exits, but we will ignore this for now */
 
@@ -631,17 +800,17 @@ create_ion_table (ndom, rootname, iz)
   fptr = fopen (filename, "w");
 
 
+
   i = 0;
   while (i < number_ions)
   {
     istate[i] = ion[first_ion + i].istate;
 
-    c[i] = get_ion (ndom, iz, istate[i], 0);
+    c[i] = get_ion (ndom, iz, istate[i], ion_switch);
     i++;
   }
 
   nstart = zdom[ndom].nstart;
-  nstop = zdom[ndom].nstop;
   ndim2 = zdom[ndom].ndim2;
 
 
@@ -726,39 +895,22 @@ create_ion_table (ndom, rootname, iz)
 
 
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
-Synopsis:
-
-	Get get density, etc for one particular ion
-
-Arguments:		
-
-	ndom	the domain number
-	element	the element number
-	istate	the ionization state
-	iswitch a swithc controlling exactly what is returned for that ion
-
-
-Returns:
-
-	Normally returns an array with values associated with what is requested
-   	This will return an array with all zeros if there is no such ion
- 
-Description:	
-	
-
-	
-Notes:
-
-	Although a header lines is created, nothing appears to be done with this
-	It's up to the calling routine to control the name.  At present it
-	is not obvious this is happening.
-History:
-	150428	ksl	Adpated from routines in py_wind.c
-
-**************************************************************/
+/**********************************************************/
+/**
+ * @brief      Get get density, etc for one particular ion
+ *
+ * @param [in] int  ndom   the domain number
+ * @param [in] int  element   the element number
+ * @param [in] int  istate   the ionization state
+ * @param [in] int  iswitch   a switch controlling exactly what is returned for that ion
+ * @return     Normally returns an array with values associated with what is requested
+ *    	This will return an array with all zeros if there is no such ion
+ *
+ * @details
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 double *
 get_ion (ndom, element, istate, iswitch)
@@ -766,14 +918,13 @@ get_ion (ndom, element, istate, iswitch)
 {
   int nion, nelem;
   int n;
-  char name[LINELENGTH];
   int nplasma;
   double *x;
-  int nstart, nstop, ndim2;
+  int nstart, ndim2;
+  double nh;
 
 
   nstart = zdom[ndom].nstart;
-  nstop = zdom[ndom].nstop;
   ndim2 = zdom[ndom].ndim2;
 
   x = (double *) calloc (sizeof (double), ndim2);
@@ -792,7 +943,6 @@ get_ion (ndom, element, istate, iswitch)
   while (nelem < nelements && ele[nelem].z != element)
     nelem++;
 
-  strcpy (name, "");
 
   /* Now populate the array */
 
@@ -800,32 +950,29 @@ get_ion (ndom, element, istate, iswitch)
   {
     x[n] = 0;
     nplasma = wmain[nstart + n].nplasma;
-    if (wmain[nstart + n].vol > 0.0 && plasmamain[nplasma].ne > 1.0)
+    if (wmain[nstart + n].vol > 0.0 && plasmamain[nplasma].rho > 0.0)
     {
       if (iswitch == 0)
       {
-        sprintf (name, "Element %d (%s) ion %d fractions\n", element, ele[nelem].name, istate);
         x[n] = plasmamain[nplasma].density[nion];
-        x[n] /= ((plasmamain[nplasma].density[0] + plasmamain[nplasma].density[1]) * ele[nelem].abun);
+        nh = rho2nh * plasmamain[nplasma].rho;
+        x[n] /= (nh * ele[nelem].abun);
       }
       else if (iswitch == 1)
       {
-        sprintf (name, "Element %d (%s) ion %d density\n", element, ele[nelem].name, istate);
         x[n] = plasmamain[nplasma].density[nion];
       }
       else if (iswitch == 2)
       {
-        sprintf (name, "Element %d (%s) ion %d  #scatters\n", element, ele[nelem].name, istate);
-        x[n] = plasmamain[nplasma].scatters[nion];
+        x[n] = (double) plasmamain[nplasma].scatters[nion] / plasmamain[nplasma].vol;
       }
       else if (iswitch == 3)
       {
-        sprintf (name, "Element %d (%s) ion %d scattered flux\n", element, ele[nelem].name, istate);
         x[n] = plasmamain[nplasma].xscatters[nion];
       }
       else
       {
-        Error ("xion_summary : Unknown switch %d \n", iswitch);
+        Error ("get_ion : Unknown switch %d \n", iswitch);
         exit (0);
       }
     }
@@ -834,30 +981,30 @@ get_ion (ndom, element, istate, iswitch)
   return (x);
 }
 
-/**************************************************************************
 
 
-  Synopsis:  
-	Get a simple variable from the PlasmaPtr array
-
-  Description:	
-
-  Arguments:  
-
-  Returns:
-
-  	The values in the plasma pointer for this variable. A double
-	will be returned even if the PlasmaPtr varible is an integer
-
-  Notes:
-  	Getting any simple variable from the plama structure should
-	follow this template.
-
-  History:
-  	150429 ksl Adapted from te_summary in py_wind
-	1508	ksl	Updated for domains
-
- ************************************************************************/
+/**********************************************************/
+/**
+ * @brief      Get a simple variable from the PlasmaPtr array
+ *
+ * @param [in] int  ndom   The domain in question
+ * @param [in] char  variable_name[]   The name of the variable
+ * @return     The values in the plasma pointer for this variable. A double
+ * 	will be returned even if the PlasmaPtr varible is an integer
+ *
+ *
+ * @details
+ *
+ * A simple variable is a variable that is just a number, not an array
+ *
+ * The routine performes a simple tranlation of the character name
+ * to a variable in the PlasmaPtr.
+ *
+ * ### Notes ###
+ * Only selected variables are returned, but new variables are easy
+ * to add using the template of the other variables
+ *
+ **********************************************************/
 
 double *
 get_one (ndom, variable_name)
@@ -868,10 +1015,9 @@ get_one (ndom, variable_name)
   int nplasma;
   double *x;
   int ndim2;
-  int nstart, nstop;
+  int nstart;
 
   nstart = zdom[ndom].nstart;
-  nstop = zdom[ndom].nstop;
   ndim2 = zdom[ndom].ndim2;
 
   x = (double *) calloc (sizeof (double), ndim2);
@@ -904,6 +1050,22 @@ get_one (ndom, variable_name)
       {
         x[n] = plasmamain[nplasma].t_r;
       }
+      else if (strcmp (variable_name, "t_e_old") == 0)
+      {
+        x[n] = plasmamain[nplasma].t_e_old;
+      }
+      else if (strcmp (variable_name, "t_r_old") == 0)
+      {
+        x[n] = plasmamain[nplasma].t_r_old;
+      }
+      else if (strcmp (variable_name, "dt_e") == 0)
+      {
+        x[n] = plasmamain[nplasma].dt_e;
+      }
+      else if (strcmp (variable_name, "dt_e_old") == 0)
+      {
+        x[n] = plasmamain[nplasma].dt_e_old;
+      }
 
       else if (strcmp (variable_name, "converge") == 0)
       {
@@ -932,6 +1094,10 @@ get_one (ndom, variable_name)
       else if (strcmp (variable_name, "heat_tot") == 0)
       {
         x[n] = plasmamain[nplasma].heat_tot;
+      }
+      else if (strcmp (variable_name, "heat_tot_old") == 0)
+      {
+        x[n] = plasmamain[nplasma].heat_tot_old;
       }
       else if (strcmp (variable_name, "heat_comp") == 0)
       {
@@ -988,6 +1154,26 @@ get_one (ndom, variable_name)
       else if (strcmp (variable_name, "nioniz") == 0)
       {
         x[n] = plasmamain[nplasma].nioniz;
+      }
+      else if (strcmp (variable_name, "heat_shock") == 0)
+      {
+        x[n] = plasmamain[nplasma].heat_shock;
+      }
+      else if (strcmp (variable_name, "cool_adiab") == 0)
+      {
+        x[n] = plasmamain[nplasma].cool_adiabatic;
+      }
+      else if (strcmp (variable_name, "heat_lines_macro") == 0)
+      {
+        x[n] = plasmamain[nplasma].heat_lines_macro;
+      }
+      else if (strcmp (variable_name, "heat_photo_macro") == 0)
+      {
+        x[n] = plasmamain[nplasma].heat_photo_macro;
+      }
+      else if (strcmp (variable_name, "gain") == 0)
+      {
+        x[n] = plasmamain[nplasma].gain;
       }
 
 

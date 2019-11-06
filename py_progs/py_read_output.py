@@ -23,7 +23,6 @@ Arguments:
 # we need the classes and numpy modules 
 import py_classes as cls
 import numpy as np
-import matplotlib.pyplot as plt
 import subprocess
 import py_plot_util as util
 
@@ -60,7 +59,8 @@ def read_spectrum(filename):
     if not '.spec' in filename: 
         if not '.log_spec_tot' in filename:
             if not '.spec_tot' in filename:
-                filename = filename + '.spec' # assume user wants the spectrum file if no suffix
+                if not ".log_spec" in filename:
+                    filename = filename + '.spec' # assume user wants the spectrum file if no suffix
 
     if has_astropy:
         spectrum = ascii.read(filename)
@@ -224,7 +224,9 @@ def read_pywind(filename, return_inwind=False, mode="2d", complete=True):
     #d = np.loadtxt(filename, comments="#", dtype = "float", unpack = True)
     d = ascii.read(filename)
 
-    return util.wind_to_masked(d, "var", return_inwind=return_inwind)
+
+    return util.wind_to_masked(d, "var", return_inwind=return_inwind, mode=mode)
+
 
 
 
@@ -328,7 +330,7 @@ def write_pf(root, pf_dict):
 
     f = open(root, "w")
 
-    for key,val in pf_dict.iteritems():
+    for key,val in pf_dict.items():
 
         # convert if it is a float
         if isinstance(val, list):           
@@ -342,6 +344,8 @@ def write_pf(root, pf_dict):
         else:
             f.write("%s    %s\n" % (key, val))
 
+    f.close()
+
     return (0)
 
 
@@ -349,6 +353,8 @@ def setpars():
     '''
     set some standard parameters for plotting
     '''
+    import matplotlib.pyplot as plt
+    
     print('Setting plot parameters for matplotlib.')
     plt.rcParams['lines.linewidth'] = 1.0
     plt.rcParams['axes.linewidth'] = 1.3

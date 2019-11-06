@@ -1,11 +1,9 @@
 name: Surface.reflection.or.absorption
 description: |
-  Multi-line description, must keep indentation.
-type: Enum (Int)
+  When photons hit the disk, there are several options
+type: Enumerator
 values:
-  0: no.rerad
-  1: high.albedo
-  2: thermalized.rerad
-parent:
-  parameter: Condition e.g. >0 or list e.g. [1, 2, 5]
-file: setup2.c
+  reflect: The photons are scattered back into the wind
+  absorb: The photons are simply lost from the calculation
+  thermalized.rerad: The photons are absorbed, in the next ionization cycle energy lost is treated as extra heat, and the effective temperature of the ring in the disk will be increased accordingly
+file: setup.c

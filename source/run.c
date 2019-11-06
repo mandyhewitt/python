@@ -1,82 +1,86 @@
-/***********************************************************
-                                       Space Telescope Science Institute
 
-Synopsis:
-
-This file contains the driving routines to carry out calculaiton of
-the ionization of the plasma and also to extract detailed spectra.
- 
-Arguments:		
-
-Returns:
- 
-Description:	
-		
-Notes:
-
-These routines were moved from the main routine as part oa an effort
-to make main shorter and to put the main ccaluations into separate
-routines.  
-
-
-History:
-
-	15sep 	ksl	Moved calculating of the ionization of the
-			wind to separate routines
-**************************************************************/
-
-
+/***********************************************************/
+/** @file  run.c
+ * @author ksl
+ * @date   May, 2018
+ *
+ * @brief  the driving routines to carry out calculation of 
+ * the ionization of the plasma and also to extract detailed 
+ * spectra after the inputs have been collected.
+ *
+ * ### Programming Comment ###
+ * The name of this file is not really acurate.  The routines
+ * here do drive the major portions of the calculation but they
+ * are still run from python.c.  It might be better to move even
+ * more of the running of the code to here.  Alternatively, one
+ * might make python.c simpler, so that developers could see
+ * the structure better, but moving the input section
+ * into it's own file.
+ *
+ ***********************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 #include "atomic.h"
-
-
 #include "python.h"
 
 
-/***********************************************************
-        Space Telescope Science Institute
-
-Synopsis: calculate_ionization execucutes the ionization cycles for a 
-	python model
- 
-Arguments:		
-
-Returns:
- 
-Description:	
-		
-Notes:
-
-
-History:
-
-	15sep 	ksl	Moved calculating the ionization from main 
-			to a separat routine
-
-**************************************************************/
+/**********************************************************/
+/** 
+ * @brief      run the ionization cycles for a 
+ * python model
+ *
+ * @param [in] int  restart_stat   0 if the is run is beginning from
+ * scratch,  non-zero if this was a restart
+ * @return     Always returns 0 
+ *
+ * @details
+ * This is the main routine for running the ionization
+ * cycles in Python
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 int
 calculate_ionization (restart_stat)
      int restart_stat;
 {
   int n, nn;
-  double zz, zzz, zze, ztot, zz_adiab;
-  int nn_adiab;
+  double zz, zzz, zze, ztot, zz_adiab, zz_lofreq;
+  double zz_abs, zz_scat, zz_star, zz_disk;
+  double zz_err, zz_else;
+  int nn_adiab, nn_lofreq;
   WindPtr w;
   PhotPtr p;
 
   char dummy[LINELENGTH];
 
-  double freqmin, freqmax;
-  long nphot_to_define;
+  double freqmin, freqmax, x;
+  long nphot_to_define, nphot_min;
   int iwind;
+
+
 #ifdef MPI_ON
   int ioniz_spec_helpers;
 #endif
+
+  /* Save the the windfile before the first ionization cycle in order to
+   * allow investigation of issues that may have arisen at the very beginning
+   */
+
+#ifdef MPI_ON
+  if (rank_global == 0)
+  {
+#endif
+    wind_save (files.windsave); // This is only needed to update pcycle
+#ifdef MPI_ON
+  }
+#endif
+
 
 
   p = photmain;
@@ -91,15 +95,14 @@ calculate_ionization (restart_stat)
   ioniz_spec_helpers = 2 * MSPEC * NWAVE;       //we need space for log and lin spectra for MSPEC XNWAVE
 #endif
 
-/* XXXX - THE CALCULATION OF THE IONIZATION OF THE WIND */
+/* THE CALCULATION OF THE IONIZATION OF THE WIND */
 
   geo.ioniz_or_extract = 1;     //SS July 04 - want to compute MC estimators during ionization cycles
   //1 simply implies we are in the ionization section of the code
   //and allows routines to act accordinaly.
 
-/* 67 -ksl- geo.wycle will start at zero unless we are completing an old run */
 
-/* XXXX - BEGINNING OF CYCLE TO CALCULATE THE IONIZATION OF THE WIND */
+/* BEGINNING OF CYCLE TO CALCULATE THE IONIZATION OF THE WIND */
 
   if (geo.wcycle == geo.wcycles)
     xsignal (files.root, "%-20s No ionization needed: wcycles(%d)==wcyeles(%d)\n", "COMMENT", geo.wcycle, geo.wcycles);
@@ -122,9 +125,9 @@ calculate_ionization (restart_stat)
   while (geo.wcycle < geo.wcycles)
   {                             /* This allows you to build up photons in bunches */
 
-    xsignal (files.root, "%-20s Starting %d of %d ionization cycle \n", "NOK", geo.wcycle, geo.wcycles);
+    xsignal (files.root, "%-20s Starting %3d of %3d ionization cycles \n", "NOK", geo.wcycle + 1, geo.wcycles);
 
-    Log ("!!Python: Beginning cycle %d of %d for defining wind\n", geo.wcycle, geo.wcycles);
+    Log ("!!Python: Beginning cycle %d of %d for defining wind\n", geo.wcycle + 1, geo.wcycles);
     Log_flush ();               /* Flush the log file (so that we know where are if there are problems */
 
     /* Initialize all of the arrays, etc, that need initialization for each cycle
@@ -135,25 +138,40 @@ calculate_ionization (restart_stat)
 
     wind_rad_init ();           /*Zero the parameters pertaining to the radiation field */
 
-    if (modes.ispy)
-      ispy_init ("python", geo.wcycle);
 
     geo.n_ioniz = 0.0;
     geo.cool_tot_ioniz = 0.0;
     ztot = 0.0;                 /* ztot is the luminosity of the disk multipled by the number of cycles, which is used by save_disk_heating */
 
-    if (!geo.wind_radiation || (geo.wcycle == 0 && geo.run_type != SYSTEM_TYPE_PREVIOUS))
+    if (!geo.wind_radiation || (geo.wcycle == 0 && geo.run_type != RUN_TYPE_PREVIOUS))
       iwind = -1;               /* Do not generate photons from wind */
     else
       iwind = 1;                /* Create wind photons and force a reinitialization of wind parms */
 
+
+    /* If we are using photon speed up mode then the number of photons varies by cycle in the
+     * ionization phase.  We set this up here
+     */
+
+    if (modes.photon_speedup)
+    {
+      nphot_min = NPHOT_MAX / pow (10., PHOT_RANGE);
+
+      x = log10 (NPHOT_MAX / nphot_min) / (geo.wcycles - 1);
+      NPHOT = nphot_min * pow (10., (x * geo.wcycle));
+      if (NPHOT > NPHOT_MAX)
+      {
+        NPHOT = NPHOT_MAX;
+      }
+    }
+
+    Log ("!!Python: %1.2e photons will be transported for cycle %i\n", (double) NPHOT, geo.wcycle);
 
     /* Create the photons that need to be transported through the wind
      *
      * NPHOT is the number of photon bundles which will equal the luminosity; 
      * 0 => for ionization calculation 
      */
-
 
     nphot_to_define = (long) NPHOT;
 
@@ -162,8 +180,8 @@ calculate_ionization (restart_stat)
     /* Zero the arrays, and other variables that need to be zeroed after the photons are generated. */
 
 
-    geo.lum_star_back=0;
-    geo.lum_disk_back=0;
+    geo.lum_star_back = 0;
+    geo.lum_disk_back = 0;
 
 
     for (n = 0; n < NRINGS; n++)
@@ -175,7 +193,6 @@ calculate_ionization (restart_stat)
 
     photon_checks (p, freqmin, freqmax, "Check before transport");
 
-    wind_ip ();
 
 
     zz = 0.0;
@@ -185,7 +202,7 @@ calculate_ionization (restart_stat)
     }
 
     Log ("!!python: Total photon luminosity before transphot %18.12e\n", zz);
-    Log_flush ();               /* NSH June 13 Added call to flush logfile */
+    Log_flush ();
     ztot += zz;                 /* Total luminosity in all cycles, used for calculating disk heating */
 
     /* kbf_need determines how many & which bf processes one needs to considere.  It was introduced
@@ -204,26 +221,65 @@ calculate_ionization (restart_stat)
     trans_phot (w, p, 0);
 
     /*Determine how much energy was absorbed in the wind */
-    zze = zzz = zz_adiab = 0.0;
-    nn_adiab = 0;
+    zze = zzz = zz_adiab = zz_abs = zz_scat = zz_star = zz_disk = zz_err = zz_else = zz_lofreq = 0.0;
+    nn_adiab = nn_lofreq = 0;
     for (nn = 0; nn < NPHOT; nn++)
     {
       zzz += p[nn].w;
       if (p[nn].istat == P_ESCAPE)
+      {
         zze += p[nn].w;
-      if (p[nn].istat == P_ADIABATIC)
+      }
+      else if (p[nn].istat == P_ADIABATIC)
       {
         zz_adiab += p[nn].w;
         nn_adiab++;
       }
+      else if (p[nn].istat == P_LOFREQ_FF)
+      {
+        zz_lofreq += p[nn].w;
+        nn_lofreq++;
+      }
+      else if (p[nn].istat == P_ABSORB)
+      {
+        zz_abs += p[nn].w;
+      }
+      else if (p[nn].istat == P_TOO_MANY_SCATTERS)
+      {
+        zz_scat += p[nn].w;
+      }
+      else if (p[nn].istat == P_HIT_STAR)
+      {
+        zz_star += p[nn].w;
+      }
+      else if (p[nn].istat == P_HIT_DISK)
+      {
+        zz_disk += p[nn].w;
+      }
+      else if (p[nn].istat == P_ERROR || p[nn].istat == P_ERROR_MATOM)
+      {
+        zz_err += p[nn].w;
+      }
+      else
+      {
+        zz_else += p[nn].w;
+      }
     }
 
-    Log ("!!python: Total photon luminosity after transphot %18.12e (diff %18.12e). Radiated luminosity %18.12e\n", zzz, zzz - zz, zze);
+    Log
+      ("!!python: Total photon luminosity after transphot  %18.12e (absorbed/lost  %18.12e). Radiated luminosity %18.12e\n",
+       zzz, zzz - zz, zze);
     if (geo.rt_mode == RT_MODE_MACRO)
-      Log ("Luminosity taken up by adiabatic kpkt destruction %18.12e number of packets %d\n", zz_adiab, nn_adiab);
-
-
-
+    {
+      Log ("!!python: luminosity lost by adiabatic kpkt destruction %18.12e number of packets %d\n", zz_adiab, nn_adiab);
+      Log ("!!python: luminosity lost to low-frequency free-free    %18.12e number of packets %d\n", zz_lofreq, nn_lofreq);
+    }
+    Log ("!!python: luminosity lost by being completely absorbed  %18.12e \n", zz_abs);
+    Log ("!!python: luminosity lost by too many scatters          %18.12e \n", zz_scat);
+    Log ("!!python: luminosity lost by hitting the star           %18.12e \n", zz_star);
+    Log ("!!python: luminosity lost by hitting the disk           %18.12e \n", zz_disk);
+    Log ("!!python: luminosity lost by errors                     %18.12e \n", zz_err);
+    Log ("!!python: luminosity lost by the unknown                %18.12e \n", zz_else);
 
 
     photon_checks (p, freqmin, freqmax, "Check after transport");
@@ -242,19 +298,17 @@ calculate_ionization (restart_stat)
     communicate_matom_estimators_para ();       // this will return 0 if nlevels_macro == 0
 #endif
 
-    if (modes.ispy)
-      ispy_close ();
 
 
     /* Calculate and store the amount of heating of the disk due to radiation impinging on the disk */
-    /* We only want one process to write to the file */
+    /* We only want one process to write to the file, and we only do this if there is a disk */
 
 #ifdef MPI_ON
     if (rank_global == 0)
     {
 #endif
-      qdisk_save (files.disk, ztot);
-
+      if (geo.disk_type != DISK_NONE)
+        qdisk_save (files.disk, ztot);
 #ifdef MPI_ON
     }
     MPI_Barrier (MPI_COMM_WORLD);
@@ -264,12 +318,12 @@ calculate_ionization (restart_stat)
 
     Log ("!!python: Number of ionizing photons %g lum of ionizing photons %g\n", geo.n_ioniz, geo.cool_tot_ioniz);
 
-/* This step should be MPI_parallelised too */
+/* Note that this step is parallelized */
 
     wind_update (w);
 
 
-    Log ("Completed ionization cycle %d :  The elapsed TIME was %f\n", geo.wcycle, timer ());
+    Log ("Completed ionization cycle %d :  The elapsed TIME was %f\n", geo.wcycle + 1, timer ());
 
     /* Do an MPI reduce to get the spectra all gathered to the master thread */
 
@@ -291,10 +345,10 @@ calculate_ionization (restart_stat)
  * values, loglin (0=linear, 1=log for the wavelength scale), all photons or just wind photons
  */
 
-      spectrum_summary (files.wspec,       "w", 0, 6, SPECTYPE_RAW, 1., 0, 0);  /* .spec_tot */ 
-      spectrum_summary (files.lwspec,      "w", 0, 6, SPECTYPE_RAW, 1., 1, 0);  /* .log_spec_tot */
-      spectrum_summary (files.wspec_wind,  "w", 0, 6, SPECTYPE_RAW, 1., 0, 1);  /* .spec_tot_wind  */
-      spectrum_summary (files.lwspec_wind, "w", 0, 6, SPECTYPE_RAW, 1., 1, 1);  /* .log_spec_tot_wind */
+      spectrum_summary (files.wspec, 0, 6, SPECTYPE_RAW, 1., 0, 0);     /* .spec_tot */
+      spectrum_summary (files.lwspec, 0, 6, SPECTYPE_RAW, 1., 1, 0);    /* .log_spec_tot */
+      spectrum_summary (files.wspec_wind, 0, 6, SPECTYPE_RAW, 1., 0, 1);        /* .spec_tot_wind  */
+      spectrum_summary (files.lwspec_wind, 0, 6, SPECTYPE_RAW, 1., 1, 1);       /* .log_spec_tot_wind */
       phot_gen_sum (files.phot, "w");   /* Save info about the way photons are created and absorbed
                                            by the disk */
 #ifdef MPI_ON
@@ -307,7 +361,7 @@ calculate_ionization (restart_stat)
     /* NSH1306 - moved geo.wcycle++ back, but moved the log and xsignal statements */
 
 
-    xsignal (files.root, "%-20s Finished %d of %d ionization cycle \n", "OK", geo.wcycle, geo.wcycles);
+    xsignal (files.root, "%-20s Finished %3d of %3d ionization cycles \n", "OK", geo.wcycle + 1, geo.wcycles);
     geo.wcycle++;               //Increment ionisation cycles
 
 
@@ -332,9 +386,9 @@ calculate_ionization (restart_stat)
       }
       if (modes.make_tables)
       {
-          strcpy(dummy,"");
-          sprintf(dummy,"diag_%s/%s%02d",files.root,files.root,geo.wcycle);
-          do_windsave2table(dummy);
+        strcpy (dummy, "");
+        sprintf (dummy, "diag_%s/%s%02d", files.root, files.root, geo.wcycle);
+        do_windsave2table (dummy, 0);
       }
 
 #ifdef MPI_ON
@@ -342,15 +396,12 @@ calculate_ionization (restart_stat)
     MPI_Barrier (MPI_COMM_WORLD);
 #endif
 
-
-
-
     check_time (files.root);
     Log_flush ();               /*Flush the logfile */
 
   }                             // End of Cycle loop
 
-/* XXXX - END OF CYCLE TO CALCULATE THE IONIZATION OF THE WIND */
+/* END OF CYCLE TO CALCULATE THE IONIZATION OF THE WIND */
 
 
   Log (" Completed wind creation.  The elapsed TIME was %f\n", timer ());
@@ -364,25 +415,23 @@ calculate_ionization (restart_stat)
   return (0);
 }
 
-/***********************************************************
-                                       Space Telescope Science Institute
-
-Synopsis:  make_spectra generates the detailed spectra
- 
-Arguments:		
-
-Returns:
- 
-Description:	
-		
-Notes:
 
 
-History:
-
-	15sep 	ksl	Moved calculating the detailed spectra to a separata 
-                routine
-**************************************************************/
+/**********************************************************/
+/** 
+ * @brief      generates the detailed spectra
+ *
+ * @param [in, out] int  restart_stat   0 if the is run is beginning from
+ * scratch, non-zero if this was a restart 
+ * @return     Always returns EXIT_SUCCESS
+ *
+ * @details
+ * This is the main routine for calculation detailed
+ * spectra in Python.
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 int
 make_spectra (restart_stat)
@@ -395,26 +444,20 @@ make_spectra (restart_stat)
   double renorm;
   long nphot_to_define;
   int iwind;
+  int n;
+
 #ifdef MPI_ON
   char dummy[LINELENGTH];
   int spec_spec_helpers;
 #endif
 
-  /* Next three lines have variables that should be a structure, or possibly we
-     should allocate the space for the spectra to avoid all this nonsense.  02feb ksl */
-
-
   int icheck;
-
-
-
-/* XXXX - THE CALCULATION OF A DETAILED SPECTRUM IN A SPECIFIC REGION OF WAVELENGTH SPACE */
 
   p = photmain;
   w = wmain;
 
-  freqmax = C / (geo.swavemin * 1.e-8);
-  freqmin = C / (geo.swavemax * 1.e-8);
+  freqmax = VLIGHT / (geo.swavemin * 1.e-8);
+  freqmin = VLIGHT / (geo.swavemax * 1.e-8);
 
 #ifdef MPI_ON
   /* the length of the big arrays to help with the MPI reductions of the spectra
@@ -430,7 +473,7 @@ make_spectra (restart_stat)
 
   geo.ioniz_or_extract = 0;
 
-/* 57h -- 07jul -- Next steps to speed up extraction stage */
+/* Next steps to speed up extraction stage */
   if (!modes.keep_photoabs)
   {
     DENSITY_PHOT_MIN = -1.0;    // Do not calculated photoabsorption in detailed spectrum 
@@ -451,7 +494,16 @@ make_spectra (restart_stat)
 
   kbf_need (freqmin, freqmax);
 
-  /* XXXX - BEGIN CYCLES TO CREATE THE DETAILED SPECTRUM */
+  /* force recalculation of kpacket rates */
+  if (geo.rt_mode == RT_MODE_MACRO)
+  {
+    for (n = 0; n < NPLASMA; n++)
+    {
+      macromain[n].kpkt_rates_known = -1;
+    }
+  }
+
+  /* BEGIN CYCLES TO CREATE THE DETAILED SPECTRUM */
 
   /* the next section initializes the spectrum array in two cases, for the
    * standard one where one is calulating the spectrum for the first time
@@ -464,7 +516,7 @@ make_spectra (restart_stat)
     spectrum_init (freqmin, freqmax, geo.nangles, geo.angle, geo.phase,
                    geo.scat_select, geo.top_bot_select, geo.select_extract, geo.rho_select, geo.z_select, geo.az_select, geo.r_select);
 
-    /* 68b - zero the portion of plasma main that records the numbers of scatters by
+    /* zero the portion of plasma main that records the numbers of scatters by
      * each ion in a cell
      */
 
@@ -472,7 +524,7 @@ make_spectra (restart_stat)
 
   }
 
-  /* the next condition should really when one has nothing more to do */
+  /* the next condition should only occur when one has nothing more to do */
 
   else if (geo.pcycle >= geo.pcycles)
     xsignal (files.root, "%-20s No spectrum   needed: pcycles(%d)==pcycles(%d)\n", "COMMENT", geo.pcycle, geo.pcycles);
@@ -483,7 +535,8 @@ make_spectra (restart_stat)
        have already completed some. The memory for the spectral arrays
        should already have been allocated, and the spectrum was initialised
        on the original run, so we just need to renormalise the saved spectrum */
-    /* See issue #134 (JM) */
+    /* See issue #134 and #503  */
+
     if (restart_stat == 0)
       Error ("Not restarting, but geo.pcycle = %i and trying to renormalise!\n", geo.pcycle);
 
@@ -494,14 +547,13 @@ make_spectra (restart_stat)
   while (geo.pcycle < geo.pcycles)
   {                             /* This allows you to build up photons in bunches */
 
-    xsignal (files.root, "%-20s Starting %d of %d spectral cycle \n", "NOK", geo.pcycle, geo.pcycles);
-
-    if (modes.ispy)
-      ispy_init ("python", geo.pcycle + 1000);
+    xsignal (files.root, "%-20s Starting %3d of %3d spectrum cycles \n", "NOK", geo.pcycle + 1, geo.pcycles);
 
 
-    Log ("!!Cycle %d of %d to calculate a detailed spectrum\n", geo.pcycle, geo.pcycles);
-    Log_flush ();               /*NSH June 13 Added call to flush logfile */
+
+    Log ("!!Cycle %d of %d to calculate a detailed spectrum\n", geo.pcycle + 1, geo.pcycles);
+    Log_flush ();
+
     if (!geo.wind_radiation)
       iwind = -1;               /* Do not generate photons from wind */
     else if (geo.pcycle == 0)
@@ -518,8 +570,19 @@ make_spectra (restart_stat)
 
      */
 
+    NPHOT = NPHOT_MAX;          // Assure that we really are creating as many photons as we expect.
+
     nphot_to_define = (long) NPHOT *(long) geo.pcycles;
     define_phot (p, freqmin, freqmax, nphot_to_define, 1, iwind, 0);
+
+    /* TODAY */
+    if (modes.save_photons)
+    {
+      for (n = 0; n < NPHOT; n++)
+      {
+        save_photons (&p[n], "CREATE");
+      }
+    }
 
     for (icheck = 0; icheck < NPHOT; icheck++)
     {
@@ -534,8 +597,6 @@ make_spectra (restart_stat)
 
     trans_phot (w, p, geo.select_extract);
 
-
-
     spectrum_create (p, freqmin, freqmax, geo.nangles, geo.select_extract);
 
 /* Write out the detailed spectrum each cycle so that one can see the statistics build up! */
@@ -547,29 +608,26 @@ make_spectra (restart_stat)
 #endif
 
 
-
-
-
 #ifdef MPI_ON
     if (rank_global == 0)
     {
 #endif
 
-      spectrum_summary (files.spec, "w", 0, nspectra - 1, geo.select_spectype, renorm, 0, 0);
-      spectrum_summary (files.lspec, "w", 0, nspectra - 1, geo.select_spectype, renorm, 1, 0);
+      spectrum_summary (files.spec, 0, nspectra - 1, geo.select_spectype, renorm, 0, 0);
+      spectrum_summary (files.lspec, 0, nspectra - 1, geo.select_spectype, renorm, 1, 0);
 
       /* Next lines  produce spectra from photons in the wind only */
-      spectrum_summary (files.spec_wind, "w", 0, nspectra - 1, geo.select_spectype, renorm, 0, 1);
-      spectrum_summary (files.lspec_wind, "w", 0, nspectra - 1, geo.select_spectype, renorm, 1, 1);
+      spectrum_summary (files.spec_wind, 0, nspectra - 1, geo.select_spectype, renorm, 0, 1);
+      spectrum_summary (files.lspec_wind, 0, nspectra - 1, geo.select_spectype, renorm, 1, 1);
 
 #ifdef MPI_ON
     }
 #endif
-    Log ("Completed spectrum cycle %3d :  The elapsed TIME was %f\n", geo.pcycle, timer ());
+    Log ("Completed spectrum cycle %3d :  The elapsed TIME was %f\n", geo.pcycle + 1, timer ());
 
     /* JM1304: moved geo.pcycle++ after xsignal to record cycles correctly. First cycle is cycle 0. */
 
-    xsignal (files.root, "%-20s Finished %3d of %3d spectrum cycles \n", "OK", geo.pcycle, geo.pcycles);
+    xsignal (files.root, "%-20s Finished %3d of %3d spectrum cycles \n", "OK", geo.pcycle + 1, geo.pcycles);
 
     geo.pcycle++;               // Increment the spectral cycles
 
@@ -586,7 +644,8 @@ make_spectra (restart_stat)
   }
 
 
-/* XXXX -- END CYCLE TO CALCULATE DETAILED SPECTRUM */
+/* END CYCLE TO CALCULATE DETAILED SPECTRUM */
+
 #ifdef MPI_ON
   if (rank_global == 0)
   {
@@ -624,6 +683,11 @@ make_spectra (restart_stat)
 
 
   xsignal (files.root, "%-20s %s\n", "COMPLETE", files.root);
-  Log ("Completed entire program.  The elapsed TIME was %f\n", timer ());
+  Log ("\nBrief Run Summary\nAt program comppletion, the elapsed TIME was %f\n", timer ());
+  Log ("There were %d of %d ionization cycles and %d of %d spectral cycles run\n", geo.wcycle, geo.wcycles, geo.pcycle, geo.pcycles);
+  Log ("Convergence statistics for the wind after the ionization calculation:\n");
+  check_convergence ();
+  Log ("Information about luminosities and apparent fluxes due to various portions of the system:\n");
+  phot_status ();
   return EXIT_SUCCESS;
 }

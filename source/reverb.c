@@ -1,16 +1,18 @@
 /***********************************************************/
 /** @file   reverb.c
- * @Author SWM
+ * @author SWM
  * @date   July, 2015
  * @brief  Reverberation mapping functions.
  *
  * File containing reverberation mapping functions.
  ***********************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+
 #include "atomic.h"
 #include "python.h"
 
@@ -19,8 +21,9 @@ int delay_dump_bank_size = 65535, delay_dump_bank_curr = 0;
 int *delay_dump_spec;
 PhotPtr delay_dump_bank;
 
+
 /**********************************************************/
-/** @name 	delay_to_observer
+/** 
  * @brief	Calculates the delay to the observer plane
  *
  * @param [in] pp			Pointer to test photon
@@ -30,7 +33,7 @@ PhotPtr delay_dump_bank;
  * from the current photon to it. Uses ds_to_plane() for
  * reliability.
  *
- * @notes
+ * ###Notes###
  * 9/14	-	Written by SWM
 ***********************************************************/
 double
@@ -47,7 +50,7 @@ delay_to_observer (PhotPtr pp)
 }
 
 /**********************************************************/
-/** @name 	delay_dump_prep
+/** 
  * @brief	Prepares delay dump output file
  *
  * @param [in] filename		File root for run
@@ -61,7 +64,7 @@ delay_to_observer (PhotPtr pp)
  * thread. The file is then built up in batches using
  * delay_dump() in increments of #delay_dump_bank_size.
  *
- * @notes
+ * ###Notes###
  * 9/14	-	Written by SWM
 ***********************************************************/
 int
@@ -119,14 +122,14 @@ delay_dump_prep (int restart_stat)
 }
 
 /**********************************************************/
-/** @name 	delay_dump_finish
+/** 
  * @brief	Finishes dumping tracked photons to file
  *
  * @return 					0
  *
  * Dumps the remaining tracked photons to file, frees memory.
  *
- * @notes
+ * ###Notes###
  * 6/15	-	Written by SWM
 ***********************************************************/
 int
@@ -143,7 +146,7 @@ delay_dump_finish (void)
 }
 
 /**********************************************************/
-/** @name 	delay_dump_combine
+/** 
  * @brief	Prepares delay dump output file
  *
  * @param [in] i_ranks		Number of parallel processes
@@ -152,7 +155,7 @@ delay_dump_finish (void)
  * Collects all the delay dump files together at the end. 
  * Called by the master thread. Uses 'cat' for simplicity.
  *
- * @notes
+ * ###Notes###
  * 6/15	-	Written by SWM
 ***********************************************************/
 int
@@ -192,7 +195,7 @@ delay_dump_combine (int i_ranks)
 }
 
 /**********************************************************/
-/** @name 	delay_dump
+/** 
  * @brief	Dumps tracked photons to file
  *
  * @param [in] np			Pointer to photon array tp dump
@@ -205,7 +208,7 @@ delay_dump_combine (int i_ranks)
  * contribute to the delay map. Uses the same filters as 
  * the spectra_create() function for scatters & angles.
  *
- * @notes
+ * ###Notes###
  * 6/15	-	Written by SWM
 ***********************************************************/
 int
@@ -223,7 +226,7 @@ delay_dump (PhotPtr p, int np)
   if ((fptr = fopen (delay_dump_file, "a")) == NULL)
   {
     Error ("delay_dump: Unable to reopen %s for writing\n", delay_dump_file);
-    exit (0);
+    Exit (0);
   }
   for (nphot = 0; nphot < np; nphot++)
   {
@@ -242,15 +245,15 @@ delay_dump (PhotPtr p, int np)
          p[nphot].nscat == mscat ||
          (mscat < 0 && p[nphot].nscat >= (-mscat))) && ((mtopbot = xxspec[i].top_bot) == 0 || (mtopbot * p[nphot].x[2]) > 0))
     {
-      delay = (delay_to_observer (&p[nphot]) - geo.rmax) / C;
+      delay = (delay_to_observer (&p[nphot]) - geo.rmax) / VLIGHT;
       if (delay < 0)
         subzero++;
 
       fprintf (fptr,
-               "%10.5g %10.5g %10.5g %+10.5g %+10.5g %+10.5g %5d %5d %10.5g %5d %5d %5d\n",
-               p[nphot].freq, C * 1e8 / p[nphot].freq, p[nphot].w,
+               "%10.5g %12.7g %10.5g %+10.5g %+10.5g %+10.5g %3d     %3d     %10.5g %5d %5d %5d\n",
+               p[nphot].freq, VLIGHT * 1e8 / p[nphot].freq, p[nphot].w,
                p[nphot].x[0], p[nphot].x[1], p[nphot].x[2],
-               p[nphot].nscat, p[nphot].nrscat, delay, i - MSPEC, p[nphot].origin_orig, p[nphot].nres);
+               p[nphot].nscat, p[nphot].nrscat, delay, i - MSPEC, p[nphot].origin, p[nphot].nres);
     }
   }
 
@@ -263,7 +266,7 @@ delay_dump (PhotPtr p, int np)
 }
 
 /**********************************************************/
-/** @name 	delay_dump_single
+/** 
  * @brief	Preps a single photon to be dumped
  *
  * @param [in] pp			Pointer to extracted photon
@@ -273,7 +276,7 @@ delay_dump (PhotPtr p, int np)
  * Takes a photon and copies it to the staging arrays for 
  * delay dumping, to be output to file later.
  *
- * @notes
+ * ###Notes###
  * 6/15	-	Written by SWM
 ***********************************************************/
 int

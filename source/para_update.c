@@ -1,36 +1,38 @@
-/***********************************************************
-                        University of Southampton
 
-Synopsis:   
-  communicate_estimators_para averages the spectral
-  estimators between tasks using MPI_Reduce. 
-  It should only be called if the MPI_ON flag was present 
-  in compilation. It communicates all the information
-  required for the spectral model ionization scheme, and 
-  also heating and cooling quantities in cells.
+/***********************************************************/
+/** @file  para_update.c
+ * @author ksl, jm
+ * @date   January, 2018
+ *
+ * @brief  routines for communicating MC estimators and spectra between MPI threads.
+ *
+ ***********************************************************/
 
-Arguments:		
-
-Returns:
- 
-Description:	
-	
-Notes:
-  This was originally done in python.c but I've moved here for more readable code.
-
-History:
-    JM Coded as part of fix to #132
-
-
-
-**************************************************************/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
 #include "atomic.h"
 #include "python.h"
 
+
+/**********************************************************/
+/** 
+ * @brief      communicates the MC estimators between tasks
+ *
+ * @details
+ * communicates the MC estimators between tasks relating to 
+ * spectral models, heating and cooling and cell diagnostics like IP. 
+ * In the case of some variables, the quantities are maxima and minima so the 
+ * flag MPI_MAX or MPI_MIN is used in MPI_Reduce. For summed
+ * quantities like heating we use MPI_SUM.
+ *  
+ * This routine should only do anything if the MPI_ON flag was present 
+ * in compilation. It communicates all the information
+ * required for the spectral model ionization scheme, and 
+ * also heating and cooling quantities in cells.
+ **********************************************************/
 
 int
 communicate_estimators_para ()
@@ -48,7 +50,7 @@ communicate_estimators_para ()
 
   /* The size of the helper array for doubles. We transmit 10 numbers 
      for each cell, plus three arrays, each of length NXBANDS */
-  plasma_double_helpers = (15 + 3 * NXBANDS) * NPLASMA;
+  plasma_double_helpers = (18 + 6 * NXBANDS) * NPLASMA;
 
   /* The size of the helper array for integers. We transmit 7 numbers 
      for each cell, plus one array of length NXBANDS */
@@ -93,12 +95,22 @@ communicate_estimators_para ()
     redhelper[mpi_i + 12 * NPLASMA] = plasmamain[mpi_i].ip_direct / np_mpi_global;
     redhelper[mpi_i + 13 * NPLASMA] = plasmamain[mpi_i].ip_scatt / np_mpi_global;
     redhelper[mpi_i + 14 * NPLASMA] = plasmamain[mpi_i].heat_auger / np_mpi_global;
+    redhelper[mpi_i + 15 * NPLASMA] = plasmamain[mpi_i].rad_force_es[0] / np_mpi_global;
+    redhelper[mpi_i + 16 * NPLASMA] = plasmamain[mpi_i].rad_force_es[1] / np_mpi_global;
+    redhelper[mpi_i + 17 * NPLASMA] = plasmamain[mpi_i].rad_force_es[2] / np_mpi_global;
 
     for (mpi_j = 0; mpi_j < NXBANDS; mpi_j++)
     {
-      redhelper[mpi_i + (15 + mpi_j) * NPLASMA] = plasmamain[mpi_i].xj[mpi_j] / np_mpi_global;
-      redhelper[mpi_i + (15 + NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].xave_freq[mpi_j] / np_mpi_global;
-      redhelper[mpi_i + (15 + 2 * NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].xsd_freq[mpi_j] / np_mpi_global;
+      redhelper[mpi_i + (18 + mpi_j) * NPLASMA] = plasmamain[mpi_i].xj[mpi_j] / np_mpi_global;
+      redhelper[mpi_i + (18 + NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].xave_freq[mpi_j] / np_mpi_global;
+      redhelper[mpi_i + (18 + 2 * NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].xsd_freq[mpi_j] / np_mpi_global;
+      redhelper[mpi_i + (18 + 3 * NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].F_x[mpi_j] / np_mpi_global;
+      redhelper[mpi_i + (18 + 4 * NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].F_y[mpi_j] / np_mpi_global;
+      redhelper[mpi_i + (18 + 5 * NXBANDS + mpi_j) * NPLASMA] = plasmamain[mpi_i].F_z[mpi_j] / np_mpi_global;
+
+
+
+
 
       /* 131213 NSH populate the band limited min and max frequency arrays */
       maxbandfreqhelper[mpi_i * NXBANDS + mpi_j] = plasmamain[mpi_i].fmax[mpi_j];
@@ -160,12 +172,21 @@ communicate_estimators_para ()
     plasmamain[mpi_i].ip_direct = redhelper2[mpi_i + 12 * NPLASMA];
     plasmamain[mpi_i].ip_scatt = redhelper2[mpi_i + 13 * NPLASMA];
     plasmamain[mpi_i].heat_auger = redhelper2[mpi_i + 14 * NPLASMA];
+    plasmamain[mpi_i].rad_force_es[0] = redhelper2[mpi_i + 15 * NPLASMA];
+    plasmamain[mpi_i].rad_force_es[1] = redhelper2[mpi_i + 16 * NPLASMA];
+    plasmamain[mpi_i].rad_force_es[2] = redhelper2[mpi_i + 17 * NPLASMA];
 
     for (mpi_j = 0; mpi_j < NXBANDS; mpi_j++)
     {
-      plasmamain[mpi_i].xj[mpi_j] = redhelper2[mpi_i + (15 + mpi_j) * NPLASMA];
-      plasmamain[mpi_i].xave_freq[mpi_j] = redhelper2[mpi_i + (15 + NXBANDS + mpi_j) * NPLASMA];
-      plasmamain[mpi_i].xsd_freq[mpi_j] = redhelper2[mpi_i + (15 + NXBANDS * 2 + mpi_j) * NPLASMA];
+      plasmamain[mpi_i].xj[mpi_j] = redhelper2[mpi_i + (18 + mpi_j) * NPLASMA];
+      plasmamain[mpi_i].xave_freq[mpi_j] = redhelper2[mpi_i + (18 + NXBANDS + mpi_j) * NPLASMA];
+      plasmamain[mpi_i].xsd_freq[mpi_j] = redhelper2[mpi_i + (18 + NXBANDS * 2 + mpi_j) * NPLASMA];
+      plasmamain[mpi_i].F_x[mpi_j] = redhelper2[mpi_i + (18 + NXBANDS * 3 + mpi_j) * NPLASMA];
+      plasmamain[mpi_i].F_y[mpi_j] = redhelper2[mpi_i + (18 + NXBANDS * 4 + mpi_j) * NPLASMA];
+      plasmamain[mpi_i].F_z[mpi_j] = redhelper2[mpi_i + (18 + NXBANDS * 5 + mpi_j) * NPLASMA];
+
+
+
 
       /* 131213 NSH And unpack the min and max banded frequencies to the plasma array */
       plasmamain[mpi_i].fmax[mpi_j] = maxbandfreqhelper2[mpi_i * NXBANDS + mpi_j];
@@ -267,30 +288,21 @@ communicate_estimators_para ()
 }
 
 
-/***********************************************************
-                        University of Southampton
-
-Synopsis: gather_spectra_para
-
-Arguments:	
-  int nspec_helper
-    size of the helper arrays used by the MPI_Reduce and Broadcast routines
-
-  int nspecs
-    the number of spectra computed. This is longer for the spectral cycles than
-    the ionization cycles 	
-
-Returns:
- 
-Description:	
-	
-Notes:
-
-History:
-    JM Coded as part of fix to #132
-
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief sum up the synthetic spectra between threads.   
+ * 
+ * @param [in] int  nspecs number of spectra to compute 
+ * @param [in] int nspec_helper the length of the big arrays 
+ *                  to help with the MPI reductions of the spectra 
+ *                  equal to 2 * number of spectra (NSPEC) * number of wavelengths.
+ *
+ * @details
+ * sum up the synthetic spectra between threads. Does an
+ * MPI_Reduce then an MPI_Bcast for each element of the 
+ * linear and log spectra arrays (xxspec) 
+ *
+ **********************************************************/
 
 int
 gather_spectra_para (nspec_helper, nspecs)
@@ -341,31 +353,19 @@ gather_spectra_para (nspec_helper, nspecs)
 
 
 
-/***********************************************************
-                        University of Southampton
-
-Synopsis: 
-  communicate_matom_estimators_para averages the macro-atom 
-  estimators between tasks using MPI_Reduce. 
-  It should only be called if the MPI_ON flag was present 
-  in compilation, and returns 0 immediately if no macro atom levels.
-  This should probably be improved by working out exactly
-  what is needed in simple-ion only mode. 
-
-Arguments:		
-
-Returns:
- 
-Description:	
-	
-Notes:
-
-History:
-    JM Coded as part of fix to #132
 
 
-**************************************************************/
-
+/**********************************************************/
+/** 
+ * @brief      
+ *
+ * @details averages the macro-atom estimators between tasks using MPI_Reduce. 
+ *   It should only be called if the MPI_ON flag was present 
+ *   in compilation, and returns 0 immediately if no macro atom levels.
+ *   This should probably be improved by working out exactly
+ *   what is needed in simple-ion only mode.
+ *
+ **********************************************************/
 
 int
 communicate_matom_estimators_para ()
@@ -398,7 +398,7 @@ communicate_matom_estimators_para ()
   gamma_helper = calloc (sizeof (double), NPLASMA * 4 * size_gamma_est);
   alpha_helper = calloc (sizeof (double), NPLASMA * 2 * size_alpha_est);
   level_helper = calloc (sizeof (double), NPLASMA * nlevels_macro);
-  cell_helper = calloc (sizeof (double), 7 * NPLASMA);
+  cell_helper = calloc (sizeof (double), 8 * NPLASMA);
   cooling_bf_helper = calloc (sizeof (double), NPLASMA * 2 * nphot_total);
   cooling_bb_helper = calloc (sizeof (double), NPLASMA * nlines);
 
@@ -406,7 +406,7 @@ communicate_matom_estimators_para ()
   gamma_helper2 = calloc (sizeof (double), NPLASMA * 4 * size_gamma_est);
   alpha_helper2 = calloc (sizeof (double), NPLASMA * 2 * size_alpha_est);
   level_helper2 = calloc (sizeof (double), NPLASMA * nlevels_macro);
-  cell_helper2 = calloc (sizeof (double), 7 * NPLASMA);
+  cell_helper2 = calloc (sizeof (double), 8 * NPLASMA);
   cooling_bf_helper2 = calloc (sizeof (double), NPLASMA * 2 * nphot_total);
   cooling_bb_helper2 = calloc (sizeof (double), NPLASMA * nlines);
 
@@ -429,7 +429,8 @@ communicate_matom_estimators_para ()
     cell_helper[mpi_i + 3 * NPLASMA] = macromain[mpi_i].cooling_bf_coltot / np_mpi_global;
     cell_helper[mpi_i + 4 * NPLASMA] = macromain[mpi_i].cooling_bbtot / np_mpi_global;
     cell_helper[mpi_i + 5 * NPLASMA] = macromain[mpi_i].cooling_ff / np_mpi_global;
-    cell_helper[mpi_i + 6 * NPLASMA] = macromain[mpi_i].cooling_adiabatic / np_mpi_global;
+    cell_helper[mpi_i + 6 * NPLASMA] = macromain[mpi_i].cooling_ff_lofreq / np_mpi_global;
+    cell_helper[mpi_i + 7 * NPLASMA] = macromain[mpi_i].cooling_adiabatic / np_mpi_global;
 
 
 
@@ -512,7 +513,8 @@ communicate_matom_estimators_para ()
     macromain[mpi_i].cooling_bf_coltot = cell_helper2[mpi_i + 3 * NPLASMA];
     macromain[mpi_i].cooling_bbtot = cell_helper2[mpi_i + 4 * NPLASMA];
     macromain[mpi_i].cooling_ff = cell_helper2[mpi_i + 5 * NPLASMA];
-    macromain[mpi_i].cooling_adiabatic = cell_helper2[mpi_i + 6 * NPLASMA];
+    macromain[mpi_i].cooling_ff_lofreq = cell_helper2[mpi_i + 6 * NPLASMA];
+    macromain[mpi_i].cooling_adiabatic = cell_helper2[mpi_i + 7 * NPLASMA];
 
 
     for (n = 0; n < nlevels_macro; n++)

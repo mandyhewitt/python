@@ -1,54 +1,46 @@
+
+/***********************************************************/
+/** @file  gradv.c
+ * @author ksl
+ * @date   January, 2018
+ *
+ * @brief  Routines related to calculating velocity gradients
+ *
+ ***********************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-
 #include <string.h>
+
 #include "atomic.h"
 #include "python.h"
 
-/***********************************************************
-                                       Space Telescope Science Institute
 
- Synopsis:
-        double
-        dvwind_ds(w,p) finds the gradient velocity vector v, e.g. dvds for the wind 
-        coordinates at the position of the photon p.
-
- Arguments:
-        WindPtr w;
-        PhotPtr p;
-
-Returns:
-        dvds    on successful completion
-                the value of where in grid if the photon outside the wind grid.
-
-Description:
-
-Notes:
-
-History:
-    01dec	ksl	Coding began, as a result of finding 
-			features in output spectra that were 
-			due to a discontinuous dv/ds.
-	02jan	ksl	Fixed problem in which photons below the
-			disk plane were not being dealt with 
-			consistently to those above the plane
-	04aug	ksl	52a -- Revised to allow for multiple
-			coordinate systems and to use the same
-			fractional position routines as most
-			other portions of python.  Also rewrote
-			so more nearly resembles those programs.
-	05apr	ksl	55d -- Modified to accept new version
-			of coord_fraction, which is much more
-			coordinate system independent
-	06may	ksl	57+ -- There is no point in transferring
-			entire wind to dvwind_ds when we have
-			wmain
-    1411    JM -- use on the fly method for spherical coordinates
-            to avoid problems. This should be improved. See notes
-            below and #118 
-
-**************************************************************/
+/**********************************************************/
+/**
+ * @brief      find the gradient velocity vector v, dv_ds for a photon
+ * at a certain postion travelling in a certain direction
+ *
+ * @param [in] PhotPtr  p   A photon
+ * @return     dvds    on successful completion
+ * the value of where in grid if the photon outside the wind grid.
+ *
+ * @details
+ *
+ * ### Notes ###
+ * For spherical coordinates the routine calculates the gradient
+ * on the fly, that is moves the photon a bit and calculates dvds
+ *
+ * For 2d systems, the velocity gradient is calculated using
+ * the velocity gradient tensors, which contain the velocity
+ * gradient in the xz plane.
+ *
+ * It's not clear how much faster the method used for 2d systems
+ * actually is, and one might want to consider the on-the-
+ * fly appoach for all systems.
+ *
+ **********************************************************/
 
 double
 dvwind_ds (p)
@@ -69,10 +61,10 @@ dvwind_ds (p)
 
 
   /* We want the change in velocity along the line of sight, but we
-     need to be careful because of the fact that we have elected to 
+     need to be careful because of the fact that we have elected to
      combine the upper and lower hemispheres in the wind array.  Since
      we are only concerned with the the scalar dv_ds, the safest thing
-     to do is to create a new photon that is only in the upper hemisphere 
+     to do is to create a new photon that is only in the upper hemisphere
      02jan ksl */
 
   stuff_phot (p, &pp);
@@ -82,11 +74,11 @@ dvwind_ds (p)
     pp.lmn[2] = -pp.lmn[2];
   }
 
-  /* JM 1411 -- ideally, we want to do an interpolation on v_grad here. However, 
+  /* JM 1411 -- ideally, we want to do an interpolation on v_grad here. However,
      the interpolation was incorrect in spherical coordinates (see issue #118).
      For the moment, I've adopted an on the fly method for spherical coordinates.
-     This should be improved by figuring out out how the velocity gradient 
-     tensor ought to be rotated in order to give the right answer for spherical 
+     This should be improved by figuring out out how the velocity gradient
+     tensor ought to be rotated in order to give the right answer for spherical
      coordinates */
 
   if (zdom[ndom].coord_type == SPHERICAL)
@@ -133,26 +125,21 @@ dvwind_ds (p)
       }
     }
 
-    // ??? Not clear this is correct !!!  for multiple coordinate systems 
     /* v_grad is in cylindrical cordinates, or more precisely intended
-       to be azimuthally symmetric.  One could either 
-       (a) convert v_grad to cartesian coordinates at the position of the
-       photon or (b) 
-       convert the photon direction to cylindrical coordinates 
-       at the position of the photon. Possibility b is more straightforward
-       given the existing code */
+       to be azimuthally symmetric.  One could either
+       (a) rotate  v_grad to be correct at the position of the photon or
+       (b) rotate the direction of photon travel so that is is correct
+       (assuming azimuthal symmetery) in the xz plane.
+
+       Possibility b is more straightforward and that is what is done
+     */
 
     project_from_xyz_cyl (pp.x, pp.lmn, lmn);
 
     dvds = dot_tensor_vec (v_grad, lmn, dvel_ds);
 
-    /* Note that dvel_ds is also in cylindrical coordinates should it ever be
-       needed.
-
-       It is not clear that vwind_xyz should not be modified simply to return v
-       along the line of sight of the photon as well...since vwind the results are vwind
-       are immediately dotted with the photon direction in resonate which is the only place
-       the routine is used I believe . ksl
+    /* Note that the vector dvel_ds is also in an azimuthally symmetric system in the
+     * xx plane, and could be rotated back if it were needed
      */
   }
 
@@ -168,41 +155,37 @@ dvwind_ds (p)
 
 
 
-/* Calculate the average tau assuming an oscillator strength of 1
-
-??? Not clear to me that this and everything should not be done with gradv above 
-
-   History:
-	98	ksl	Coded
-	98dec	ksl	Modified so it calulates a length ds which is
-			appropriate to the cell size
-	02feb	ksl	Added code to find the direction of maximum velocity
-			gradient, and also to assure that in calculating dvds_ave
-			the pseudo photon pp did not cross the plane of the
-			disk.
-	04aug	ksl	52a -- Corrected basic error in dvds_ave.  Previous values
-			were 10x too large
-	05apr	ksl	55d -- Modified to use w[].xcen rather than mid_x and
-			mid_z.  This was necessary for rtheta and spherical
-			coordinates.  
-	05jul	ksl	56d -- Routine was attempting to calcuate vwind_xyz
-			outside of the grid on occassion.  This can be a problem, 
-			if the result is really wrong.  I have simply tried to
-			address this in vwind, which really means vwind always
-			needs to produce a plausible result, which in turn
-			means that coord_frac must always produce a reasonable
-			result.
-	05jul	ksl	Added DEBUG statements to limit creation of dvds.diag
-			in cases where not needed.  
-	06may	ksl	57+ -- Have not changed except to fix call since it is
-			claimed that one needs this everywhere.
-	0903	ksl	68c -- This routine appears to have been wrotng since
-			at least the last time it was changed, although it is
-			not clear what the effect of the error was.  pp was not
-			intialized in the statements below
- */
-
 #define N_DVDS_AVE	10000
+
+/**********************************************************/
+/**
+ * @brief      Calculate the direction averaged (and maximum)
+ * dv_ds in each grid cell of the wind
+ *
+ * @return     Always returns 0
+ *
+ * @details
+ * The routine cycles through all of the cells in the wind, and calculates
+ * the aveage value of dv_ds at the center of the wind cell by randomly
+ * generating directions and then calculating dv_ds in these directions
+ *
+ * It not only finds the average value, it also keeps track of the maximum
+ * value of dvds and its direction
+ *
+ *
+ * ### Notes ###
+ * The routine is called during the intialization process and fills
+ * the following elements of wmain
+ *
+ *  * dvds_ave - the average dvds
+ *  * dvds_max - the maximum value of dvds
+ *  * lmn - the direction of the maximum value
+ *
+ * There is an advanced mode which prints this information to
+ * file.
+ **********************************************************/
+
+
 int
 dvds_ave ()
 {
@@ -212,15 +195,17 @@ dvds_ave ()
   double dvds_max, lmn[3];
   int n;
   int icell;
-  double dvds_min, lmn_min[3];  //TEST
+  double dvds_min, lmn_min[3];
   char filename[LINELENGTH];
   int ndom;
 
+
+  /* Open a diagnostic file if print_dvds_info is non-zero */
   strcpy (filename, basename);
   strcat (filename, ".dvds.diag");
   if (modes.print_dvds_info)
   {
-    optr = fopen (filename, "w");       //TEST
+    optr = fopen (filename, "w");
   }
 
   for (icell = 0; icell < NDIM2; icell++)
@@ -279,9 +264,8 @@ dvds_ave ()
 
     }
 
-    wmain[icell].dvds_ave = sum / (N_DVDS_AVE * ds);    /* 10000 pts and ds */
-
-//Store the maximum and the direction of the maximum
+    /* Store the results in wmain */
+    wmain[icell].dvds_ave = sum / (N_DVDS_AVE * ds);
     wmain[icell].dvds_max = dvds_max / ds;
     stuff_v (lmn, wmain[icell].lmn);
 

@@ -1,33 +1,32 @@
 
-
-
-/**************************************************************************
-                    Space Telescope Science Institute
-
-
-  Synopsis:  
-
-  These are routines which provide a very brief summary of 
-  how the program is proceeding, mainly information about
-  how many cycles have completed.  They are used for restarting
-  python, primarily.
-
-  Description:	
-
-  Arguments:  
-
-
-  Returns:
-
-  Notes:
-
- 
-
-  History:
-08nov	ksl	Coded as part of effort to be able to restart jobs
-		on the Royal cluster
-
- ************************************************************************/
+/***********************************************************/
+/** @file  signal.c
+ * @author ksl
+ * @date   March, 2018
+ *
+ * @brief  Routines indicating  how  many ionization or spectal
+ * generation cycles have been completed in 
+ * in a file named root.sig where 
+ * root is the rootname of the .pf file and which stop the
+ * program if one has set a maximum execution time and this
+ * has been exceeded. 
+ *
+ * The purpose of these routines are to give a very high level
+ * view of where the program is at any time, and in particular
+ * whether the program was complete at the time the program exited.
+ *
+ * The were written for running models on systems whre there 
+ * are time limits on how long a program can run, such as 
+ * beowulf clusters.  
+ *
+ * They permit you to stop (checkpoint) 
+ * the program after a certain time, and then using scripts
+ * to easily determine whether the program ran to completion
+ * and if not
+ * to restart the program to finish a run
+ *
+ *
+ ***********************************************************/
 
 #include <stdio.h>
 #include <strings.h>
@@ -35,31 +34,40 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include "log.h"
 
+#include "log.h"
 #include "atomic.h"
 #include "python.h"
 
 
-/* 
-
-xsignal generates a single line message to a file names root.sig
-
-All of the messages hae the format of
-
-Mon Nov 10 09:05:34 2008     10.0  message 
-
-where the message is determined by the format and the extra variables 
-that are passed to the program.  This portion of the routine
-operates in the same way that an fprintf statement operates
-and was derived from the routines used for logging.
-
-
-0811	ksl	Created as part of effort to make the program work on
-		on Royal where there are time limits for how long a
-		single process can run
- 
-*/
+/**********************************************************/
+/** 
+ * @brief      xsignal generates a single line message to a file names root.sig
+ *
+ * @param [in] char *  root   root name of the file to wirte to
+ * @param [in] char *  format   A format string
+ * @param [in]   ...   The remaining inputs for the fprintf statement
+ * @return     Always  returns 0
+ *
+ * If one cannot write to the .sig file, Python will exit
+ *
+ * @details
+ * 
+ * ### Notes ###
+ * In principle almost anything can be written to the .sig file, as this 
+ * uses vfprintf to write to the file.  In pracitce all of the messages
+ * have the format 
+ *
+ * 
+ * Mon Nov 10 09:05:34 2008     10.0  message 
+ * 
+ * where the message is determined by the format and the extra variables 
+ * that are passed to the program.  
+ *
+ * The messages are all written from the rank 0 thread.
+ * 
+ *
+ **********************************************************/
 
 int
 xsignal (char *root, char *format, ...)
@@ -92,7 +100,7 @@ xsignal (char *root, char *format, ...)
     if ((sptr = fopen (filename, "a")) == NULL)
     {
       Error ("xsignal: Could not even open signal file %s\n", filename);
-      exit (0);
+      Exit (0);
     }
 
     /* Now generate the message */
@@ -128,12 +136,24 @@ xsignal (char *root, char *format, ...)
   return (0);
 }
 
-/* 
- * rm the old signal file so one can begin again
+
+
+/**********************************************************/
+/** 
+ * @brief      Remove the old signal file so that one can begin again
  *
- * 170904   ksl Added check to see if the file exists, so we don't
- *              try to remove a non-existent file
- */
+ * @param [in, out] char *  root   Root name of the .sig file
+ * @return     Always returns 0
+ *
+ * @details
+ * The routine checks whether a .sig file exists, and if so 
+ * removes it
+ *
+ * ### Notes ###
+ *
+ * Thread 0 is responsible for executing the removal.
+ *
+ **********************************************************/
 
 int
 xsignal_rm (char *root)
@@ -155,9 +175,9 @@ xsignal_rm (char *root)
     /* first check if the file exists */
 
     if ((tmp_ptr = fopen (filename, "r")) == NULL)
-          {
-              return(0);
-          }
+    {
+      return (0);
+    }
 
 
     strcpy (command, "rm ");
@@ -173,25 +193,26 @@ xsignal_rm (char *root)
 }
 
 
-/* 
-max_time is the amount of time in seconds that one wantts the program to run 
-without stopping.  It can be updated at any point.
-
-Note
-
-check_time is the routine that halts the process if it runs too long.
-
-The first call to the routine timer() sets the time.  It is fine to call this
-directly but that is not necessary, as timeer will be called every time xsignal
-is invoked.
-
-0811	ksl	Created as part of efYort to make the program work on
-		on Royal where there are time limits for how long a
-		single process can run
-*/
 
 
 double max_time = -1.0;
+
+
+/**********************************************************/
+/** 
+ * @brief      Set the maximum time the program should run
+ *
+ * @param [in, out] char *  root   Root name of the .sig file where the max time is recorded
+ * @param [in, out] double  t   The maximum time one wants to proposal to run
+ * @return     Always returns 0
+ *
+ * @details
+ * The routine simple sets the max_time (an external variable) and
+ * writs information about this to .sig and log files.
+ *
+ * ### Notes ###
+ *
+ **********************************************************/
 
 int
 set_max_time (char *root, double t)
@@ -203,36 +224,65 @@ set_max_time (char *root, double t)
 }
 
 
-/*
 
-   check_time checks whether the elapsed time is greater than the max_time
-   and terminates the program if that is the case.
 
-   If the current time is greater than the allowed time. Then the program is
-   stopped, and a signal is sent to the .sig file that the program can be 
-   restarted
-
-   If the maximum time has not been set then this routine is a NOP
-
-Note:
-	Generally speaking one should send a message to xsignal before
-	invoking check_time to record the status of the signal file
-
-0811	ksl	Created as part of efYort to make the program work on
-		on Royal where there are time limits for how long a
-		single process can run
-*/
+/**********************************************************/
+/** 
+ * @brief      check whether the elapsed time is greater than the max_time
+ *   and terminate the program if that is the case.
+ *
+ * @param [in] char *  root   root name of the files where information is logged
+ * @return     Returns 0, unless the time has exeeded the maximum time in which case
+ * the program writes a comment to .sig file and exits
+ *
+ * @details
+ *
+ *  If the current time is greater than the allowed time. Then the program is
+ *  stopped, and a signal is sent to the .sig file that the program can be 
+ *  restarted
+ *
+ *  If the maximum time has not been set then this routine is a NOP
+ *
+ *
+ * ### Notes ###
+ *
+ * Generally speaking one should send a message to xsignal before
+ * invoking check_time to record the status of the signal file
+ *
+ * Bug #518:
+ * Previously Python would, on occasion, deadlock when calling this function.
+ * This was due to some MPI processes exceeding max_time whilst others did not,
+ * resulting in some processes not exiting and continuing on with their work.
+ * They would then try to communicate with other processes which have already
+ * exited, get no response and then Python would deadlock. To avoid this happening,
+ * EP added an MPI_Allreduce operation to find return the largest execution time
+ * for a thread. This is then used to check if time > max_time, and if so then
+ * MPI is finalised and Python will exit.
+ *
+ **********************************************************/
 
 int
 check_time (char *root)
 {
-  double t;
-  if (max_time > 0.0 && (t = timer () > max_time))
+  double time = timer ();
+
+#ifdef MPI_ON
+  double mpi_max_time;
+  MPI_Allreduce (&time, &mpi_max_time, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  time = mpi_max_time;
+#endif
+
+  if (max_time > 0.0 && time > max_time)
   {
-    error_summary ("Time allowed has expired expired\n");
-    xsignal (root, "COMMENT max_time %.1f exceeded\n", max_time);
-    exit (0);
-  };
+    error_summary ("Maximum execution time allowed has been reached\n");
+    xsignal (root, "\nCOMMENT max_time %.1f seconds exceeded\n", max_time);
+
+#ifdef MPI_ON
+    MPI_Finalize ();
+#endif
+
+    exit (1);
+  }
 
   return (0);
 }
