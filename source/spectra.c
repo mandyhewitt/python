@@ -812,13 +812,13 @@ spectrum_summary (filename, nspecmin, nspecmax, select_spectype, renorm, loglin,
     for (i = 1; i < NWAVE - 1; i++)
     {
         freq = freqmin + i * dfreq;
-        fprintf (fptr, "%-8e %.3f ", freq, C * 1e8 / freq);
+        fprintf (fptr, "%-8e %.3f ", freq, VLIGHT * 1e8 / freq);
         for (n = nspecmin; n <= nspecmax; n++)
         {
             x = xxspec[n].Q[i] * xxspec[n].renorm;
             if (select_spectype == SPECTYPE_FLAMBDA)
             {                       /* flambda */
-                x *= (freq * freq * 1e-8) / (dfreq * dd * C);
+                x *= (freq * freq * 1e-8) / (dfreq * dd * VLIGHT);
             }
             else if (select_spectype == SPECTYPE_FNU)
             {                       /*fnu */
@@ -844,13 +844,13 @@ spectrum_summary (filename, nspecmin, nspecmax, select_spectype, renorm, loglin,
       {
         freq = pow (10., (lfreqmin + i * ldfreq));
         dfreq = freq - freq1;
-        fprintf (fptr, "%-8e %.3f ", freq, C * 1e8 / freq);
+        fprintf (fptr, "%-8e %.3f ", freq, VLIGHT * 1e8 / freq);
         for (n = nspecmin; n <= nspecmax; n++)
         {
             x = xxspec[n].lQ[i] * xxspec[n].renorm;
             if (select_spectype == SPECTYPE_FLAMBDA)
             {                       /* flambda */
-                x *= (freq * freq * 1e-8) / (dfreq * dd * C);
+                x *= (freq * freq * 1e-8) / (dfreq * dd * VLIGHT);
             }
             else if (select_spectype == SPECTYPE_FNU)
             {                       /*fnu */
@@ -873,13 +873,13 @@ spectrum_summary (filename, nspecmin, nspecmax, select_spectype, renorm, loglin,
     for (i = 1; i < NWAVE - 1; i++)
     {
       freq = freqmin + i * dfreq;
-      fprintf (fptr, "%-8e %.3f ", freq, C * 1e8 / freq);
+      fprintf (fptr, "%-8e %.3f ", freq, VLIGHT * 1e8 / freq);
       for (n = nspecmin; n <= nspecmax; n++)
       {
         x = xxspec[n].U[i] * xxspec[n].renorm;
         if (select_spectype == SPECTYPE_FLAMBDA)
         {                       /* flambda */
-          x *= (freq * freq * 1e-8) / (dfreq * dd * C);
+          x *= (freq * freq * 1e-8) / (dfreq * dd * VLIGHT);
         }
         else if (select_spectype == SPECTYPE_FNU)
         {                       /*fnu */
@@ -904,13 +904,13 @@ spectrum_summary (filename, nspecmin, nspecmax, select_spectype, renorm, loglin,
     {
       freq = pow (10., (lfreqmin + i * ldfreq));
       dfreq = freq - freq1;
-      fprintf (fptr, "%-8e %.3f ", freq, C * 1e8 / freq);
+      fprintf (fptr, "%-8e %.3f ", freq, VLIGHT * 1e8 / freq);
       for (n = nspecmin; n <= nspecmax; n++)
       {
         x = xxspec[n].lU[i] * xxspec[n].renorm;
         if (select_spectype == SPECTYPE_FLAMBDA)
         {                       /* flambda */
-          x *= (freq * freq * 1e-8) / (dfreq * dd * C);
+          x *= (freq * freq * 1e-8) / (dfreq * dd * VLIGHT);
         }
         else if (select_spectype == SPECTYPE_FNU)
         {                       /*fnu */
