@@ -69,7 +69,7 @@ main (argc, argv)
   WindPtr w;
 
   double freqmin, freqmax;
-  int n;
+  unsigned int n;
   char values[LINELENGTH], answer[LINELENGTH];
   int get_models ();            // Note: Needed because get_models cannot be included in templates.h
   int dummy_spectype;
@@ -109,6 +109,8 @@ main (argc, argv)
                                    is initially set to the lifetime of the universe */
   time_max = -1;
   set_max_time (files.root, time_max);
+
+  rel_mode = REL_MODE_LINEAR;
 
 
   /* Set the verbosity level for logging.  To get more info raise the verbosity level to a higher number. To
@@ -412,6 +414,22 @@ main (argc, argv)
   else
     Log ("There is no BH \n");
 
+  if (geo.rt_mode == RT_MODE_MACRO)
+  {
+    if (nlevels_macro == 0)
+    {
+      Error ("THIS IS A MACROATOM CALCULATION WITH NO MACROLEVELS\n");
+    }
+    else
+    {
+      Log ("This is a macro-atom calculation\n");
+    }
+  }
+  else
+  {
+    Log ("This is a simple atom calculation\n");
+  }
+
   /* Describe the spectra which will be extracted and the way it will be extracted */
 
   /* First initialise things to semi-reasonable values */
@@ -556,11 +574,7 @@ main (argc, argv)
 
 
 
-  /* DFUDGE is a distance that assures we can "push through" boundaries.  setup_dfudge
-     sets the push through distance depending on the size of the system.
-   */
 
-  DFUDGE = setup_dfudge ();
 
   /* Now define the wind cones generically. modifies the global windcone structure */
   setup_windcone ();
@@ -588,7 +602,12 @@ main (argc, argv)
     init_rand (1084515760 + (13 * rank_global));
   }
 
+  /* DFUDGE is a distance that assures we can "push through" boundaries.  setup_dfudge
+     sets the push through distance depending on the size of the system.
+   */
 
+//  DFUDGE = setup_dfudge ();
+  DFUDGE = setup_dfudge ();
 
   /* Next line finally defines the wind if this is the initial time this model is being run */
 
@@ -597,7 +616,7 @@ main (argc, argv)
     define_wind ();
   }
 
-
+  Log ("DFUDGE set to %e based on geo.rmax\n", DFUDGE);
 
   if (modes.zeus_connect == 1)  //We have restarted, but are in zeus connect mode, so we want to update density, temp and velocities
   {
@@ -618,10 +637,6 @@ main (argc, argv)
   }
 
 
-
-
-  /* Start with photon history off */
-  phot_hist_on = 0;
 
   /* If required, read in a non-standard disk temperature profile */
   if (geo.disk_tprofile == 1)
@@ -647,7 +662,7 @@ main (argc, argv)
 
 
   disk_init (geo.rstar, geo.diskrad, geo.mstar, geo.disk_mdot, freqmin, freqmax, 0, &geo.f_disk);
-  qdisk_init ();                /* Initialize a disk qdisk to store the information about photons impinging on the disk */
+  qdisk_init (geo.rstar, geo.diskrad, geo.mstar, geo.disk_mdot);        /* Initialize a disk qdisk to store the information about photons impinging on the disk */
   xsignal (files.root, "%-20s Finished initialization for %s\n", "NOK", files.root);
   check_time (files.root);
 

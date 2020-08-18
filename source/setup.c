@@ -785,8 +785,6 @@ setup_dfudge ()
     }
   }
 
-
-
   delta = geo.rmax - rmin;
 
   if (delta < 1.e8)
@@ -802,7 +800,6 @@ setup_dfudge ()
     dfudge = geo.rmax / 1.e10;
   }
 
-  Log ("DFUDGE set to %e based on geo.rmax\n", dfudge);
 
   return (dfudge);
 }

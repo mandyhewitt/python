@@ -243,7 +243,6 @@ define_wind ()
       Exit (1);
     }
 
-
     if (zdom[ndom].coord_type != SPHERICAL && zdom[ndom].wind_type != IMPORT)
     {
       for (n = zdom[ndom].nstart; n < zdom[ndom].nstop; n++)
@@ -341,7 +340,7 @@ be optional which variables beyond here are moved to structures othere than Wind
     }
     else if (zdom[ndom].wind_type == IMPORT)
     {
-      plasmamain[n].t_r = model_temp (ndom, x, FALSE);
+      plasmamain[n].t_r = import_temperature (ndom, x, FALSE);
     }
     else
     {
@@ -361,7 +360,7 @@ be optional which variables beyond here are moved to structures othere than Wind
 
     if (zdom[ndom].wind_type == IMPORT)
     {
-      plasmamain[n].t_e = model_temp (ndom, x, TRUE);
+      plasmamain[n].t_e = import_temperature (ndom, x, TRUE);
     }
     else if (modes.fixed_temp == FALSE && modes.zeus_connect == FALSE)  //NSH 151126 - dont multply by 0.9 in zeus connect or fixed temp modes
     {
@@ -438,8 +437,6 @@ be optional which variables beyond here are moved to structures othere than Wind
       plasmamain[i].heat_shock = 0.0;
     }
   }
-
-
 
 
   /* Calculate one over dvds */
@@ -531,25 +528,27 @@ double wig_x, wig_y, wig_z;
 
 /**********************************************************/
 /**
- * @brief      locates the element in wmain associated with a postion
+ * @brief      locates the element in wmain associated with a position 
  *
  * @param [in] int  ndom   The domain number for the search
  * @param [in] double  x[]   The position
- * @return     where_in_grid normally  returns the element in wmain associated
- * with a position.  If the positions is in the grid (of one of the domains)
- * this will be a positive integer.  If the position is not in the grid of one
- * of the domains,
- * a negative number -1 will be returned if the position is inside athe grid,
- * -2 if it is outside the grid for that domain
- *  TODO: ??? this is confusing documentation
+ * @return     where_in_grid normally  returns the element of wmain 
+ * associated that position.  
+ * 
+ * If the positions is in the grid (of the domains) this will be 
+ * a positive integer.  If the position is not in the grid of the
+ * domain, a negative number will be returned.  The negative number
+ * will be -1 if the positionis inside the grid, or -2 if it is outside
+ * the grid.,
  *
  * @details
- *
- * ### Notes ###
- * where in grid is mainly a steering routine that calls other various
+
+ * where_in_grid is mainly a steering routine that calls other various
  * coordinate system specific routines.
  *
- * Where_in grid does not tell you whether the position is in the wind!.
+ * ### Notes ###
+ *
+ * Where_in grid does not tell you whether the position is in the wind!
  *
  * What one means by inside or outside the grid may well be different
  * for different coordinate systems.
@@ -648,7 +647,19 @@ int ierr_vwind = 0;
  * If we ever implement a real 3d coordinate system, one will need to look at
  * this routine again.
  *
+ * The routine checks to see whether the position for which the velocity is needed
+ * and if so short-circuits the calculation returning a stored value
+ *
  **********************************************************/
+
+#define NVWIND  3
+int nvwind = 0;
+int nvwind_last = 0;
+struct vwind
+{
+  int iorder;
+  double v[3], pos[3];
+} xvwind[NVWIND];
 
 int
 vwind_xyz (ndom, p, v)
@@ -662,8 +673,19 @@ vwind_xyz (ndom, p, v)
   double ctheta, stheta;
   double x, frac[4];
   int nn, nnn[4], nelem;
+  int n;
 
-
+  /* Check if the velocity for this position is in the buffer, and if so return that */
+  for (n = 0; n < nvwind; n++)
+  {
+    if (xvwind[n].pos[0] == p->x[0] && xvwind[n].pos[1] == p->x[1] && xvwind[n].pos[2] == p->x[2])
+    {
+      v[0] = xvwind[n].v[0];
+      v[1] = xvwind[n].v[1];
+      v[2] = xvwind[n].v[2];
+      return (0);
+    }
+  }
 
   if (ndom < 0 || ndom >= geo.ndomain)
   {
@@ -716,6 +738,28 @@ vwind_xyz (ndom, p, v)
     Error ("vwind_xyz: %f %f %f\n", v[0], v[1], v[2]);
   }
 
+  /* Now populate the buffer */
+
+
+
+  if (nvwind < NVWIND)
+  {
+    nvwind_last = nvwind;
+    nvwind++;
+  }
+  else
+  {
+    nvwind_last = (nvwind_last + 1) % NVWIND;
+  }
+
+
+  xvwind[nvwind_last].pos[0] = p->x[0];
+  xvwind[nvwind_last].pos[1] = p->x[1];
+  xvwind[nvwind_last].pos[2] = p->x[2];
+  xvwind[nvwind_last].v[0] = v[0];
+  xvwind[nvwind_last].v[1] = v[1];
+  xvwind[nvwind_last].v[2] = v[2];
+
 
   return (0);
 }
@@ -745,7 +789,6 @@ vwind_xyz (ndom, p, v)
  * The divergence, like othe scalar quantities, does not
  * need to be "rotated" differently in different coordinate
  * systems
- *
  *
  **********************************************************/
 int wind_div_err = (-3);
