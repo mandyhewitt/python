@@ -1235,8 +1235,20 @@ scatter (p, nres, nnscat)
 
   if (*nres == -1)
   {
+<<<<<<< HEAD
+    p->freq = freq_comoving;    // The photon frequency in the electron rest frame
+    p->orig[0] = p->lmn[0];    //store original photon direction for polarization
+    p->orig[1] = p->lmn[1];
+    p->orig[2] = p->lmn[2];
+//    Log("scatter (resonate.c) stored photon p %p origin %g %g %g \n", p, p->orig[0], p->orig[1], p->orig[2]);
+    compton_dir (p);   // Get a new direction using the KN formula
+    v_dop = dot (p->lmn, v);    // Find the dot product of the new direction with the wind velocity 
+    p->freq = p->freq / (1. - v_dop / VLIGHT);  //Transform back to the observer frame
+=======
 
     compton_dir (p);            // uses the KN formula
+>>>>>>> cf65773e69d6bd7455cead3209a25a639f97ad92
+
 
   }
   else if (*nres == -2 || *nres > NLINES || geo.scatter_mode == SCATTER_MODE_ISOTROPIC)

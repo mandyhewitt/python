@@ -157,9 +157,7 @@ python_objects = bb.o atomicdata.o atomicdata_init.o atomicdata_sub.o photon2d.o
 		import.o import_spherical.o import_cylindrical.o import_rtheta.o  \
 		reverb.o paths.o setup.o run.o brem.o synonyms.o walls.o \
 		setup_reverb.o setup_line_transfer.o rdpar_init.o cv.o import_calloc.o charge_exchange.o frame.o \
-		setup_polarization.o polarization.o
-
-
+    poltest.o setup_polarization.o polarization.o
 
 
 # For reasons that are unclear to me.  get_models.c cannot be included in the sources
@@ -179,10 +177,9 @@ python_source= bb.c atomicdata.c atomicdata_init.c atomicdata_sub.c python.c pho
 		direct_ion.c pi_rates.c matrix_ion.c para_update.c setup_star_bh.c setup_domains.c \
 		setup_disk.c photo_gen_matom.c macro_gov.c windsave2table_sub.c \
 		import.c import_spherical.c import_cylindrical.c import_rtheta.c\
-		reverb.c paths.c setup.c run.c brem.c synonyms.c walls.c \
-		setup_reverb.c setup_line_transfer.c cv.c import_calloc.c charge_exchange.c frame.c \
-		setup_polarization.c polarization.c
-
+		reverb.c paths.c setup.c run.c brem.c synonyms.c walls.c poltest.c \
+		setup_reverb.c setup_line_transfer.c cv.c import_calloc.c charge_exchange.c frame.c
+    setup_polarization.c polarization.c
 
 #
 # kpar_source is now declared separately from python_source so that the file log.h
