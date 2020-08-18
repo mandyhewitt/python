@@ -640,6 +640,11 @@ struct geometry
   int reverb_lines, *reverb_line;       //SWM - Number of lines to track, and array of line 'nres' values
 
   int spec_mod;                 //A flag to say that we do hav spectral models  ??? What does this mean???
+
+  /* Variables used for Polarization */
+  enum polarization_enum
+          { POL_NONE = 0, POL_SINGLE_SCATTER = 1, POL_MULTIPLE_SCATTER = 2 } polarization;
+
 }
 geo;
 

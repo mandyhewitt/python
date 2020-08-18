@@ -665,5 +665,7 @@ int create_convergence_table(int ndom, char rootname[]);
 int create_ion_table(int ndom, char rootname[], int iz, int ion_switch);
 double *get_ion(int ndom, int element, int istate, int iswitch, char *name);
 double *get_one(int ndom, char variable_name[]);
+/* setup_polarization.c */
+int get_polarization_params(void);
 /* poltest.c */
 int poltest(PhotPtr p, PhotPtr pp);

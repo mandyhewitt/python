@@ -496,6 +496,7 @@ main (argc, argv)
   geo.matom_radiation = 0;      //initialise for ionization cycles - don't use pre-computed emissivities for macro-atom levels/ k-packets.
   get_standard_care_factors ();
   get_meta_params ();
+  get_polarization_params();
 
 /* Establish limits on the frequency intervals to be used by the ionization cycles and
  * the fraquency bands for stratified sampling. These bands are alos used as the spectral
