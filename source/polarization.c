@@ -10,7 +10,7 @@
 // define normalize function
 // todo split the magnitude part out of this function
 
-int normalize (double v1[], double v2[]) {
+int normalize_vectors (double v1[], double v2[]) {
     double fMag;
 
     fMag = sqrt( pow(v1[0], 2) + pow(v1[1], 2) + pow(v1[2], 2));
@@ -25,12 +25,11 @@ int normalize (double v1[], double v2[]) {
     }
 }
 
-double magnitude (double v1[]) {
+double get_magnitude (double v1[]) {
     double Mag;
     Mag = sqrt( pow(v1[0], 2) + pow(v1[1], 2) + pow(v1[2], 2));
     return Mag;
 }
-
 
 int
 polarization (p, pp)
@@ -105,14 +104,14 @@ polarization (p, pp)
 
     adotb3 = (dot(vect1, vect2));
 
-    magnitude_a = magnitude(vect1);                     // magnitude of input vector
+    magnitude_a = get_magnitude(vect1);                     // magnitude of input vector
     if (magnitude_a == 0)
     {
       Error ("Polarization: Input vector magnitude is zero \n");
       return (1);
     }
 
-    magnitude_b = magnitude(vect2);                     //  magnitude of output vector
+    magnitude_b = get_magnitude(vect2);                     //  magnitude of output vector
     if (magnitude_b == 0)
     {
         Error ("Polarization: Error in magnitude of output vector \n");
@@ -157,7 +156,7 @@ polarization (p, pp)
         }
 
       // now normalize the r axis in the scattering frame - new vector is called vectNormal
-      if (normalize(vectResult,vectNormal) != 0) {
+      if (normalize_vectors(vectResult,vectNormal) != 0) {
           // TODO: This is a very rare case and unlikely to happen in practice in the main code
           // but for completeness, this means that the input vector and the output vector are in the same
           // scattering plane.
@@ -165,7 +164,7 @@ polarization (p, pp)
           // then pick any vector perpendicular to vect2 e.g. parallel to or equal to r_obs.
           // Then print a warning to screen
 
-          Error ("Polarization: Error in r scattering normalize function\n");
+          Error ("Polarization: Error in r scattering normalize vectors function\n");
           Log ("Polarization ERROR Input and output vectors are anti-parallel\n");
           Log ("Polarization ERROR choose any perpendicular vector to output vector to be the r scattering axis\n");
           // TODO add this into the code or just skip this particular photon**************************!!!!!!!
@@ -184,8 +183,8 @@ polarization (p, pp)
       // now normalize the l axis in the scattering frame - new vector is called vectlNormal
       //todo the vector names aren't consistent - better to keep a theme going here
 
-      if (normalize(vectl,vectlNormal) != 0) {
-          Error ("Polarization: Error in l scattering normalize function\n");
+      if (normalize_vectors(vectl,vectlNormal) != 0) {
+          Error ("Polarization: Error in l scattering normalize vectors function\n");
           return (1);
         }
 
@@ -201,7 +200,7 @@ polarization (p, pp)
         }
 
         // todo use python normalize command
-        if (normalize(vectrObsResult,vectrObsNormal) != 0) {
+        if (normalize_vectors(vectrObsResult,vectrObsNormal) != 0) {
             Log ("ERROR in Polarization r observer frame normalize function\n");
             Error ("Polarization:ERROR in r observer frame normalize function \n");
             return (1);                                   // TODO add error check on return
@@ -214,7 +213,7 @@ polarization (p, pp)
 
         cross(vect2, vectrObsNormal, vectlObsResult);
 
-        if (normalize(vectlObsResult,vectlObsNormal) != 0) {
+        if (normalize_vectors(vectlObsResult,vectlObsNormal) != 0) {
             Error ("Polarization: in l observer frame  normalize function\n");
             return (1);
           }
@@ -328,7 +327,7 @@ polarization (p, pp)
 
         //calculate magnitude_r_obs
         // todo logically this should come up above with the r obs calculations
-        magnitude_r_obs = magnitude(vectrObsResult);
+        magnitude_r_obs = get_magnitude(vectrObsResult);
 
         if (magnitude_r_obs == 0)
         {
@@ -337,7 +336,7 @@ polarization (p, pp)
         }
 
         //calculate magnitude_r_out
-        magnitude_r_out = magnitude(vectResult);
+        magnitude_r_out = get_magnitude(vectResult);
 
         if (magnitude_r_out == 0)
         {
@@ -358,7 +357,7 @@ polarization (p, pp)
         // take scalar prod of vectxprod and direction to observer as both should be perp to dir of obs. par
         // or anti parallel
 
-        cross_mag = magnitude(vectxprod);
+        cross_mag = get_magnitude(vectxprod);
         sinphi_numerator = dot(vectxprod,vect2);
 
         //todo vect 2 is not a unit vector so it is too big (but the sign is correct) calculate it!!
