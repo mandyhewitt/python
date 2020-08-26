@@ -10,15 +10,24 @@ data/atomic_macro/h10_lines.dat
 data/atomic_macro/h10_phot.dat
 
 
-data/atomic_macro/CIII_c10_levels.dat
-data/atomic_macro/CIV_c10_levels.dat
-data/atomic_macro/CV_c1_levels.dat
+#data/atomic_macro/CIII_c10_levels.dat
+#data/atomic_macro/CIV_c10_levels.dat
+#data/atomic_macro/CV_c1_levels.dat
 
-data/atomic_macro/CIII_c10_lines.dat
-data/atomic_macro/CIV_c10_lines.dat
+#data/atomic_macro/CIII_c10_lines.dat
+#data/atomic_macro/CIV_c10_lines.dat
 
-data/atomic_macro/CIII_c10_phot.dat
-data/atomic_macro/CIV_c10_phot.dat
+#data/atomic_macro/CIII_c10_phot.dat
+#data/atomic_macro/CIV_c10_phot.dat
+
+data/atomic_macro/fe_25_levels.dat
+data/atomic_macro/fe_26_levels.dat
+
+data/atomic_macro/fe_25_lines.dat
+data/atomic_macro/fe_26_lines.dat
+
+data/atomic_macro/fe_25_phot.dat
+data/atomic_macro/fe_26_phot.dat
 
 
 #This is the standard set of data files created for.datthon81c - collision stength included
@@ -60,7 +69,7 @@ data/atomic/topbase_h1_phot_extrap.dat
 data/atomic/topbase_he1_phot_extrap.dat
 data/atomic/topbase_he2_phot_extrap.dat
 data/atomic/topbase_cno_phot_extrap.dat
-data/atomic/topbase_fe_phot_extrap.dat
+#data/atomic/topbase_fe_phot_extrap.dat
 #
 # This helium file contains all helium levels, unlike the limited number in the older files above
 #
