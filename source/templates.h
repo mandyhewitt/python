@@ -669,3 +669,5 @@ double *get_one(int ndom, char variable_name[]);
 int get_polarization_params(void);
 /* poltest.c */
 int poltest(PhotPtr p, PhotPtr pp);
+/* polarization.c */
+int polarization(PhotPtr p, PhotPtr pp);

@@ -1293,8 +1293,8 @@ typedef struct spectrum
   double lf[NWAVE];             /* The spectrum in log (wavelength or frequency) units  */
   double Q[NWAVE];              /* The linear polarized spectrum from Stokes parameter Q  */
   double lQ[NWAVE];             /* The log polarized spectrum from Stokes parameter Q */
-        double U[NWAVE];        /* The linear polarized spectrum from Stokes parameter U  */
-        double lU[NWAVE];       /* The log polarized spectrum from Stokes parameter U */
+  double U[NWAVE];              /* The linear polarized spectrum from Stokes parameter U  */
+  double lU[NWAVE];             /* The log polarized spectrum from Stokes parameter U */
   double lfreq[NWAVE];          /* We need to hold what frequency intervals our logarithmic spectrum
                                  has been taken over */
   double f_wind[NWAVE];         /* The spectrum of photons created in the wind or scattered in the wind. Created for 

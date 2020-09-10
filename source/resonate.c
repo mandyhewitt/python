@@ -1230,14 +1230,17 @@ scatter (p, nres, nnscat)
   /* Now determine the direction of the scattered photon, for electrons scatering (-1), ff emision (-2), or
      bound free emission (>NLINES), allowing depending on the scattering mode for thermal trapping. 
      Note that this portion of the code is identical for both simple and macro atoms, except for the fact
-     that ff and bf are only treated as scattering processin in macro-atom mode.
+     that ff and bf are only treated as scattering process in in macro-atom mode.
    */
 
   if (*nres == -1)
   {
-    p->orig[0] = p->lmn[0];    //store original photon direction for polarization
-    p->orig[1] = p->lmn[1];
-    p->orig[2] = p->lmn[2];
+    if (geo.polarization == POL_SINGLE_SCATTER)
+    {
+      p->orig[0] = p->lmn[0];    //store original photon direction for polarization
+      p->orig[1] = p->lmn[1];
+      p->orig[2] = p->lmn[2];
+    }
     compton_dir (p);   // Get a new direction using the KN formula
   }
   else if (*nres == -2 || *nres > NLINES || geo.scatter_mode == SCATTER_MODE_ISOTROPIC)
